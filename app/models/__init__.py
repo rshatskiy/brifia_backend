@@ -5,8 +5,9 @@ from app.models.series import Series
 from app.models.prompt import Prompt
 from app.models.plan import Plan
 from app.models.payment import PaymentMethod, PaymentLog
+from app.models.upload import Upload
 
 __all__ = [
     "User", "RefreshToken", "Profile", "Meeting",
-    "Series", "Prompt", "Plan", "PaymentMethod", "PaymentLog",
+    "Series", "Prompt", "Plan", "PaymentMethod", "PaymentLog", "Upload",
 ]
