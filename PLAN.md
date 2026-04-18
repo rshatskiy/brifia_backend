@@ -56,9 +56,11 @@
 - [x] `AccountScreen` — оплата через `/api/v1/payments/create`, веб-сессия
 - [x] `SubscriptionDetailsBottomSheet` — отмена через `/api/v1/payments/cancel`, `AppUser` вместо Supabase `User`
 - [x] `RecordingScreen` — убран `check-user-access` Edge Function
-- [ ] Мигрировать `meeting_detail_screen.dart` — 7 мест с Supabase (transcript download, bitrix)
-- [ ] Мигрировать `callbackDispatcher` в `BackgroundUploadService` (Supabase → SharedPrefs tokens)
-- [ ] Убрать `supabase_flutter` из pubspec.yaml (после полного перехода)
+- [x] `meeting_detail_screen.dart` — transcript загрузка через API, profile через API, bitrix через ApiClient
+- [x] `main.dart` — убраны все `Supabase.instance` ссылки
+- [x] `recording_screen.dart` — убран `check-user-access` Edge Function
+- [ ] Мигрировать `callbackDispatcher` в `BackgroundUploadService` — **последний блок с Supabase** (фоновый изолят, ~14 ссылок). Supabase нужен только для получения accessToken — заменить на SharedPreferences
+- [ ] Убрать `supabase_flutter` из pubspec.yaml
 
 ### Фаза 4 — Веб-версия (Next.js) ⬜
 - [ ] Инициализация проекта Next.js
