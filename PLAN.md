@@ -43,10 +43,15 @@
 - [x] `api_meetings_repository.dart` — meetings CRUD + WebSocket realtime
 - [x] `api_series_repository.dart` — series CRUD
 - [x] `api_prompts_repository.dart` — prompts read
-- [ ] Переключить провайдеры в UI с Supabase на новые api_* классы
-- [ ] Переписать `BackgroundUploadService` — токены/статусы через новый бекенд
+- [x] `AuthState` — заменить Supabase `User` на `AppUser` (без зависимости от Supabase)
+- [x] `AuthController` — полный rewrite на ApiClient (email, Google, Apple OAuth)
+- [x] `main.dart` — заменить `Supabase.initialize()` на `ApiClient.loadTokens()`
+- [x] `BackgroundUploadService` — убрать `SupabaseClient` из конструктора
+- [ ] Переключить `MeetingsRepository` → `ApiMeetingsRepository` в UI
+- [ ] Переключить `SeriesRepository` → `ApiSeriesRepository` в UI
 - [ ] Переписать `AccountScreen` — REST API для профиля и плана
 - [ ] Переписать `SubscriptionDetailsBottomSheet` — REST API для оплаты
+- [ ] Мигрировать `callbackDispatcher` в `BackgroundUploadService` (Supabase → ApiClient)
 - [ ] Убрать `supabase_flutter` из pubspec.yaml (после полного перехода)
 
 ### Фаза 4 — Веб-версия (Next.js) ⬜
