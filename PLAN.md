@@ -25,24 +25,29 @@
   - get_meeting_status: новый бекенд → fallback Supabase
   - Supabase включается при наличии SUPABASE_URL/KEY в .env, иначе работает только новый бекенд
 
-### Фаза 2 — Стабилизация загрузки ⬜
-- [ ] Сохранять состояние загрузок в PostgreSQL вместо `active_uploads` dict в памяти
-- [ ] На клиенте: заменить SharedPreferences на SQLite (drift) для атомарных обновлений
-- [ ] Идемпотентный `/initiate` — повторный вызов с тем же meeting_id возвращает существующий upload_id
-- [ ] Клиент использует `GET /uploads/{id}/status` как source of truth при восстановлении
-- [ ] На iOS: использовать `Isolate.run()` вместо inline загрузки в main isolate
+### Фаза 2 — Стабилизация загрузки (серверная часть) ✅
+- [x] Модель `Upload` в PostgreSQL — source of truth для состояния загрузок
+- [x] `/internal/uploads/*` эндпоинты: create, get, record chunk, mark assembling, update status
+- [x] Идемпотентный create_or_resume: повторный вызов с тем же meeting_id возвращает существующий upload
+- [x] faster-whisper: `_persist_upload()` сохраняет каждое изменение состояния в БД
+- [x] faster-whisper: статусы assembling/processing/completed/error персистятся в PostgreSQL
+- [ ] На клиенте: заменить SharedPreferences на SQLite (drift) — **Фаза 3**
+- [ ] На iOS: `Isolate.run()` вместо inline загрузки — **Фаза 3**
 
-### Фаза 3 — Миграция Flutter на новый API ⬜
-- [ ] Создать `lib/core/api_client.dart` — HTTP-клиент с auto-refresh JWT
-- [ ] Переписать `AuthController` — свой API вместо `supabase.auth.*`
-- [ ] Переписать `MeetingsRepository` — REST API + WebSocket вместо Supabase
-- [ ] Переписать `SeriesRepository` — REST API
-- [ ] Переписать `PromptsRepository` — REST API
+### Фаза 3 — Миграция Flutter на новый API 🔄
+- [x] `lib/config/api_config.dart` — конфиг нового бекенда
+- [x] `lib/core/api_client.dart` — HTTP-клиент с auto-refresh JWT
+- [x] `lib/core/websocket_manager.dart` — WebSocket для realtime обновлений
+- [x] `lib/core/audio_file_manager.dart` — управление аудиофайлами + скачивание/экспорт
+- [x] `api_auth_controller.dart` — новый auth (email, Google, Apple OAuth)
+- [x] `api_meetings_repository.dart` — meetings CRUD + WebSocket realtime
+- [x] `api_series_repository.dart` — series CRUD
+- [x] `api_prompts_repository.dart` — prompts read
+- [ ] Переключить провайдеры в UI с Supabase на новые api_* классы
+- [ ] Переписать `BackgroundUploadService` — токены/статусы через новый бекенд
 - [ ] Переписать `AccountScreen` — REST API для профиля и плана
 - [ ] Переписать `SubscriptionDetailsBottomSheet` — REST API для оплаты
-- [ ] Переписать `BackgroundUploadService` — новый бекенд вместо Supabase для токенов/статусов
-- [ ] Убрать `supabase_flutter` из pubspec.yaml
-- [ ] Удалить `lib/config/supabase_config.dart`, `supabaseClientProvider`
+- [ ] Убрать `supabase_flutter` из pubspec.yaml (после полного перехода)
 
 ### Фаза 4 — Веб-версия (Next.js) ⬜
 - [ ] Инициализация проекта Next.js
