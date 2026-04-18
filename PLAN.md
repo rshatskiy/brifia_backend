@@ -47,8 +47,11 @@
 - [x] `AuthController` — полный rewrite на ApiClient (email, Google, Apple OAuth)
 - [x] `main.dart` — заменить `Supabase.initialize()` на `ApiClient.loadTokens()`
 - [x] `BackgroundUploadService` — убрать `SupabaseClient` из конструктора
-- [ ] Переключить `MeetingsRepository` → `ApiMeetingsRepository` в UI
-- [ ] Переключить `SeriesRepository` → `ApiSeriesRepository` в UI
+- [x] Переключить `meetingsRepositoryProvider` → `ApiMeetingsRepository` + WebSocket
+- [x] Переписать `SeriesRepository` на ApiClient REST
+- [x] Переписать `PromptsRepository` на ApiClient REST
+- [x] `Series.fromJson` — поддержка snake_case и camelCase
+- [x] `ApiMeetingsRepository` — все методы для UI контроллеров
 - [ ] Переписать `AccountScreen` — REST API для профиля и плана
 - [ ] Переписать `SubscriptionDetailsBottomSheet` — REST API для оплаты
 - [ ] Мигрировать `callbackDispatcher` в `BackgroundUploadService` (Supabase → ApiClient)
