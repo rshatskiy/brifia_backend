@@ -11,6 +11,10 @@ class Settings(BaseSettings):
 
     google_client_id: str = ""
     google_ios_client_id: str = ""
+    google_client_secret: str = ""
+
+    apple_bundle_id: str = "com.brifia.app"
+    apple_client_secret: str = ""
 
     yookassa_shop_id: str = ""
     yookassa_secret_key: str = ""

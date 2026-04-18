@@ -135,7 +135,7 @@ async def oauth_login(req: OAuthRequest, db: AsyncSession = Depends(get_db)):
                 req.id_token,
                 key,
                 algorithms=["RS256"],
-                audience=settings.google_client_id,  # Apple bundle ID
+                audience=settings.apple_bundle_id,  # com.brifia.app
                 issuer="https://appleid.apple.com",
             )
         except Exception:
