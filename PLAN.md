@@ -34,7 +34,7 @@
 - [ ] На клиенте: заменить SharedPreferences на SQLite (drift) — **Фаза 3**
 - [ ] На iOS: `Isolate.run()` вместо inline загрузки — **Фаза 3**
 
-### Фаза 3 — Миграция Flutter на новый API 🔄
+### Фаза 3 — Миграция Flutter на новый API ✅
 - [x] `lib/config/api_config.dart` — конфиг нового бекенда
 - [x] `lib/core/api_client.dart` — HTTP-клиент с auto-refresh JWT
 - [x] `lib/core/websocket_manager.dart` — WebSocket для realtime обновлений
@@ -59,8 +59,9 @@
 - [x] `meeting_detail_screen.dart` — transcript загрузка через API, profile через API, bitrix через ApiClient
 - [x] `main.dart` — убраны все `Supabase.instance` ссылки
 - [x] `recording_screen.dart` — убран `check-user-access` Edge Function
-- [ ] Мигрировать `callbackDispatcher` в `BackgroundUploadService` — **последний блок с Supabase** (фоновый изолят, ~14 ссылок). Supabase нужен только для получения accessToken — заменить на SharedPreferences
-- [ ] Убрать `supabase_flutter` из pubspec.yaml
+- [x] `callbackDispatcher` — token из SharedPreferences, refresh через `/auth/refresh`, статус через API
+- [x] `supabase_flutter` убран из pubspec.yaml
+- [x] **0 ссылок на `Supabase.instance` во всём проекте**
 
 ### Фаза 4 — Веб-версия (Next.js) ⬜
 - [ ] Инициализация проекта Next.js
