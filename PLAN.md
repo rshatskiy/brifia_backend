@@ -52,9 +52,12 @@
 - [x] Переписать `PromptsRepository` на ApiClient REST
 - [x] `Series.fromJson` — поддержка snake_case и camelCase
 - [x] `ApiMeetingsRepository` — все методы для UI контроллеров
-- [ ] Переписать `AccountScreen` — REST API для профиля и плана
-- [ ] Переписать `SubscriptionDetailsBottomSheet` — REST API для оплаты
-- [ ] Мигрировать `callbackDispatcher` в `BackgroundUploadService` (Supabase → ApiClient)
+- [x] `AccountScreen` — профиль через `/api/v1/profiles/me`, планы через `/api/v1/plans`
+- [x] `AccountScreen` — оплата через `/api/v1/payments/create`, веб-сессия
+- [x] `SubscriptionDetailsBottomSheet` — отмена через `/api/v1/payments/cancel`, `AppUser` вместо Supabase `User`
+- [x] `RecordingScreen` — убран `check-user-access` Edge Function
+- [ ] Мигрировать `meeting_detail_screen.dart` — 7 мест с Supabase (transcript download, bitrix)
+- [ ] Мигрировать `callbackDispatcher` в `BackgroundUploadService` (Supabase → SharedPrefs tokens)
 - [ ] Убрать `supabase_flutter` из pubspec.yaml (после полного перехода)
 
 ### Фаза 4 — Веб-версия (Next.js) ⬜
