@@ -74,14 +74,18 @@
 - [x] Отмена подписки
 - [x] Репозиторий на GitHub: rshatskiy/brifia_web
 
-### Фаза 5 — Миграция данных из Supabase ⬜
-- [ ] Экспорт пользователей из `auth.users` (bcrypt-хэши совместимы)
-- [ ] Экспорт таблиц: profiles, meetings, series, prompts, plans
-- [ ] Скачать transcript JSON из Supabase Storage (S3) → вставить в `meetings.transcript_json`
-- [ ] Экспорт платёжных данных: payment_methods, payments_log
-- [ ] Скрипт миграции готов: `scripts/migrate_from_supabase.py`
+### Фаза 5 — Миграция данных из Supabase ✅
+- [x] Скрипт миграции: `scripts/migrate_from_supabase.py`
+- [x] `--dry-run` — превью количества строк без записи
+- [x] `--verify` — проверка целостности после миграции
+- [x] Экспорт пользователей из `auth.users` (bcrypt-хэши совместимы)
+- [x] Экспорт таблиц: plans → users → profiles → prompts → series → meetings
+- [x] Скачивание transcript JSON из Supabase S3 → `meetings.transcript_json`
+- [x] Экспорт платёжных данных: payment_methods, payments_log
+- [x] Обработка ошибок per-row (не останавливается на одной ошибке)
+- [x] `.env.migration.example` — шаблон конфигурации
 
-### Фаза 6 — Деплой и переключение ⬜
+### Фаза 6 — Деплой и переключение ⬜ (следующий шаг)
 - [ ] Развернуть новый бекенд на удалённом сервере (VPS)
 - [ ] Настроить PostgreSQL на сервере
 - [ ] Настроить SSL/домен для API
