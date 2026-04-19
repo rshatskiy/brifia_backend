@@ -29,6 +29,7 @@ class ProfileResponse(BaseModel):
 
 class AccountUsageResponse(BaseModel):
     profile: ProfileResponse
+    email: str
     plan_name: str
     plan_minutes_limit: int | None
     plan_price_rub: float | None

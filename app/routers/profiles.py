@@ -35,6 +35,7 @@ async def get_my_profile(
 
     return AccountUsageResponse(
         profile=ProfileResponse.model_validate(profile),
+        email=user.email,
         plan_name=plan_name,
         plan_minutes_limit=plan_minutes_limit,
         plan_price_rub=plan_price_rub,

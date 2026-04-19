@@ -130,8 +130,11 @@ async def oauth_login(req: OAuthRequest, db: AsyncSession = Depends(get_db)):
 
         from jose import jwt as jose_jwt, jwk
         apple_keys = resp.json()["keys"]
-        header = jose_jwt.get_unverified_header(req.id_token)
-        key = next((k for k in apple_keys if k["kid"] == header["kid"]), None)
+        try:
+            header = jose_jwt.get_unverified_header(req.id_token)
+        except Exception:
+            raise HTTPException(status_code=401, detail="Invalid Apple token")
+        key = next((k for k in apple_keys if k.get("kid") == header.get("kid")), None)
         if not key:
             raise HTTPException(status_code=401, detail="Invalid Apple token")
 
