@@ -32,3 +32,19 @@ class TokenResponse(BaseModel):
 class VerifyTokenResponse(BaseModel):
     user_id: str
     email: str
+
+
+class WebSessionRequestResponse(BaseModel):
+    token: str
+    expires_in: int
+
+
+class WebSessionExchangeRequest(BaseModel):
+    token: str
+
+
+class WebSessionExchangeResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    user_id: str
