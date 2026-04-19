@@ -15,9 +15,14 @@ from app.auth import (
 from app.schemas.auth import (
     RegisterRequest, LoginRequest, RefreshRequest,
     OAuthRequest, TokenResponse, VerifyTokenResponse,
+    WebSessionRequestResponse, WebSessionExchangeRequest, WebSessionExchangeResponse,
 )
 from app.config import get_settings
 from fastapi.security import HTTPAuthorizationCredentials
+import secrets
+from fastapi import Request
+from sqlalchemy import func
+from app.models.web_session_token import WebSessionToken
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -178,3 +183,89 @@ async def delete_account(user: User = Depends(get_current_user), db: AsyncSessio
     await db.delete(user)
     await db.commit()
     return {"message": "Account deleted"}
+
+
+WEB_SESSION_TOKEN_TTL_SECONDS = 300
+WEB_SESSION_RATE_LIMIT_COUNT = 10
+WEB_SESSION_RATE_LIMIT_WINDOW_MINUTES = 5
+
+
+@router.post("/web-session/request", response_model=WebSessionRequestResponse)
+async def web_session_request(
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    window_start = datetime.now(timezone.utc) - timedelta(
+        minutes=WEB_SESSION_RATE_LIMIT_WINDOW_MINUTES
+    )
+    count_result = await db.execute(
+        select(func.count(WebSessionToken.id)).where(
+            WebSessionToken.user_id == user.id,
+            WebSessionToken.created_at > window_start,
+        )
+    )
+    recent_count = count_result.scalar_one() or 0
+    if recent_count >= WEB_SESSION_RATE_LIMIT_COUNT:
+        raise HTTPException(status_code=429, detail="Too many handoff requests")
+
+    raw_token = secrets.token_urlsafe(32)
+    record = WebSessionToken(
+        user_id=user.id,
+        token_hash=hash_token(raw_token),
+        expires_at=datetime.now(timezone.utc)
+        + timedelta(seconds=WEB_SESSION_TOKEN_TTL_SECONDS),
+        ip_created=request.client.host if request.client else None,
+    )
+    db.add(record)
+    await db.commit()
+    return WebSessionRequestResponse(
+        token=raw_token, expires_in=WEB_SESSION_TOKEN_TTL_SECONDS
+    )
+
+
+@router.post("/web-session/exchange", response_model=WebSessionExchangeResponse)
+async def web_session_exchange(
+    body: WebSessionExchangeRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    if not body.token or len(body.token) < 20:
+        raise HTTPException(status_code=400, detail="Invalid token format")
+
+    token_h = hash_token(body.token)
+    result = await db.execute(
+        select(WebSessionToken)
+        .where(
+            WebSessionToken.token_hash == token_h,
+            WebSessionToken.used_at.is_(None),
+            WebSessionToken.expires_at > datetime.now(timezone.utc),
+        )
+        .with_for_update(skip_locked=True)
+    )
+    record = result.scalar_one_or_none()
+    if not record:
+        raise HTTPException(status_code=410, detail="Token invalid or expired")
+
+    user_result = await db.execute(select(User).where(User.id == record.user_id))
+    user = user_result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=410, detail="Token invalid or expired")
+
+    record.used_at = datetime.now(timezone.utc)
+    record.ip_used = request.client.host if request.client else None
+
+    access = create_access_token(str(user.id))
+    refresh = create_refresh_token()
+    rt = RefreshToken(
+        user_id=user.id,
+        token_hash=hash_token(refresh),
+        expires_at=datetime.now(timezone.utc)
+        + timedelta(days=get_settings().refresh_token_expire_days),
+    )
+    db.add(rt)
+    await db.commit()
+
+    return WebSessionExchangeResponse(
+        access_token=access, refresh_token=refresh, user_id=str(user.id)
+    )
