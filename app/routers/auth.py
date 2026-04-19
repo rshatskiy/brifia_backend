@@ -254,6 +254,7 @@ async def web_session_exchange(
 
     record.used_at = datetime.now(timezone.utc)
     record.ip_used = request.client.host if request.client else None
+    await db.flush()
 
     access = create_access_token(str(user.id))
     refresh = create_refresh_token()
