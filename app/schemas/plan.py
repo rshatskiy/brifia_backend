@@ -8,7 +8,7 @@ class PlanResponse(BaseModel):
     description: str | None
     minutes_limit: int | None
     price_rub: float
-    duration_days: int
+    duration_days: int | None
     active: bool
 
     model_config = {"from_attributes": True}

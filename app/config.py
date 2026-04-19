@@ -18,7 +18,6 @@ class Settings(BaseSettings):
 
     yookassa_shop_id: str = ""
     yookassa_secret_key: str = ""
-    yookassa_webhook_secret: str = ""
     payment_success_url: str = ""
     payment_cancel_url: str = ""
 

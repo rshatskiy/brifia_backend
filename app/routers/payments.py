@@ -33,11 +33,12 @@ async def create_payment(
     Configuration.account_id = settings.yookassa_shop_id
     Configuration.secret_key = settings.yookassa_secret_key
 
+    receipt_description = f"Подписка Brifia: {plan.name}"[:128]
     payment = Payment.create({
         "amount": {"value": str(plan.price_rub), "currency": "RUB"},
         "confirmation": {
             "type": "redirect",
-            "return_url": settings.payment_success_url,
+            "return_url": body.return_url or settings.payment_success_url,
         },
         "capture": True,
         "description": f"Подписка {plan.name}",
@@ -46,6 +47,19 @@ async def create_payment(
             "plan_id": str(plan.id),
         },
         "save_payment_method": True,
+        "receipt": {
+            "customer": {"email": user.email},
+            "items": [
+                {
+                    "description": receipt_description,
+                    "quantity": "1.00",
+                    "amount": {"value": str(plan.price_rub), "currency": "RUB"},
+                    "vat_code": 1,
+                    "payment_mode": "full_payment",
+                    "payment_subject": "service",
+                }
+            ],
+        },
     })
 
     log = PaymentLog(
