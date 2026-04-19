@@ -16,10 +16,15 @@ import gzip
 import os
 import sys
 import uuid
+from datetime import datetime, timezone
 
 import asyncpg
 import httpx
 from dotenv import load_dotenv
+
+
+def _now_utc():
+    return datetime.now(timezone.utc)
 
 load_dotenv(".env.migration")
 load_dotenv(".env", override=False)
@@ -155,7 +160,7 @@ async def migrate():
                 p.get("position"), p.get("avatar_url"), p.get("current_plan_id"),
                 p.get("subscription_active_until"), p.get("free_minutes_used", 0),
                 p.get("paid_minutes_used_this_cycle", 0),
-                p.get("created_at"), p.get("updated_at"))
+                p.get("created_at") or _now_utc(), p.get("updated_at") or _now_utc())
             migrated += 1
         except Exception as e:
             print(f"  Error migrating profile {p['id']}: {e}")
@@ -251,7 +256,7 @@ async def migrate():
                     m.get("transcript"), transcript_json,
                     m.get("protocol"), m.get("tasks_json"),
                     m.get("series_id"), m.get("prompt_id"),
-                    m.get("created_at"), m.get("updated_at"))
+                    m.get("created_at") or _now_utc(), m.get("updated_at") or _now_utc())
                 migrated += 1
             except Exception as e:
                 print(f"  Error migrating meeting {m['id']}: {e}")

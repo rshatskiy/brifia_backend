@@ -14,7 +14,7 @@ class Plan(Base):
     description: Mapped[str | None] = mapped_column(String(512), nullable=True)
     minutes_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
     price_rub: Mapped[float] = mapped_column(Numeric(10, 2), default=0)
-    duration_days: Mapped[int] = mapped_column(Integer, default=30)
+    duration_days: Mapped[int | None] = mapped_column(Integer, nullable=True, default=30)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
