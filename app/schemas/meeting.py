@@ -79,3 +79,9 @@ class MeetingStatusResponse(BaseModel):
     has_tasks: bool
     created_at: datetime
     updated_at: datetime
+
+
+class MeetingCountsResponse(BaseModel):
+    total: int
+    no_series: int
+    by_series: dict[str, int]

@@ -9,10 +9,50 @@ from app.auth import get_current_user
 from app.schemas.meeting import (
     MeetingCreate, MeetingUpdate, MeetingListItem,
     MeetingDetail, MeetingTranscriptResponse, MeetingStatusResponse,
+    MeetingCountsResponse,
 )
 from app.websocket_manager import ws_manager
 
 router = APIRouter(prefix="/api/v1/meetings", tags=["meetings"])
+
+
+@router.get("/counts", response_model=MeetingCountsResponse)
+async def get_meeting_counts(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Counters for the meetings list header and series tabs.
+
+    Returns the user's total, the number of meetings without a series
+    (the "Новые" tab), and per-series counts. Replaces a client-side
+    sum-of-series approximation that always under-counted because
+    meetings without a series were ignored.
+    """
+    total_q = await db.execute(
+        select(func.count(Meeting.id)).where(Meeting.user_id == user.id)
+    )
+    total = total_q.scalar() or 0
+
+    no_series_q = await db.execute(
+        select(func.count(Meeting.id)).where(
+            Meeting.user_id == user.id,
+            Meeting.series_id.is_(None),
+        )
+    )
+    no_series = no_series_q.scalar() or 0
+
+    by_series_q = await db.execute(
+        select(Meeting.series_id, func.count(Meeting.id))
+        .where(Meeting.user_id == user.id, Meeting.series_id.is_not(None))
+        .group_by(Meeting.series_id)
+    )
+    by_series = {str(sid): count for sid, count in by_series_q.all()}
+
+    return MeetingCountsResponse(
+        total=total,
+        no_series=no_series,
+        by_series=by_series,
+    )
 
 
 @router.get("", response_model=list[MeetingListItem])
