@@ -36,9 +36,12 @@ async def _charge_usage_if_first_completion(
     duration against the user's plan minutes. Idempotent — once the meeting
     is already 'completed', subsequent updates do nothing.
 
-    Picks the right counter by plan: paid users go to
-    ``paid_minutes_used_this_cycle`` (reset on each paid renewal), free users
-    go to ``free_minutes_used`` (the lifetime free quota).
+    Counter selection has to match the client's account screen, which
+    discriminates by plan *name* containing 'бесплатный' rather than by
+    presence of current_plan_id. Free users do have current_plan_id set
+    (the "Бесплатный" plan is itself a Plan row with a 300-minute limit),
+    so the older "is current_plan_id null?" check sent free users' minutes
+    into the paid bucket and the UI showed zero usage.
     """
     if was_completed:
         return
@@ -54,13 +57,23 @@ async def _charge_usage_if_first_completion(
     if profile is None:
         return
 
-    minutes = (meeting.duration_seconds + 59) // 60
+    is_free = True
     if profile.current_plan_id is not None:
+        from app.models.plan import Plan
+        plan_q = await db.execute(
+            select(Plan.name).where(Plan.id == profile.current_plan_id)
+        )
+        plan_name = plan_q.scalar_one_or_none()
+        if plan_name is not None and "бесплатный" not in plan_name.lower():
+            is_free = False
+
+    minutes = (meeting.duration_seconds + 59) // 60
+    if is_free:
+        profile.free_minutes_used = (profile.free_minutes_used or 0) + minutes
+    else:
         profile.paid_minutes_used_this_cycle = (
             profile.paid_minutes_used_this_cycle or 0
         ) + minutes
-    else:
-        profile.free_minutes_used = (profile.free_minutes_used or 0) + minutes
 
 
 @router.post("/meetings", response_model=MeetingDetail, status_code=201, dependencies=[Depends(verify_api_key)])
