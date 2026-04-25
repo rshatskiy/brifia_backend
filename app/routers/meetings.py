@@ -61,6 +61,7 @@ async def list_meetings(
     offset: int = Query(0, ge=0),
     limit: int = Query(15, ge=1, le=100),
     series_id: uuid.UUID | None = None,
+    no_series: bool = Query(False, description="Filter to meetings with no series (the 'Новые' tab)"),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -73,6 +74,8 @@ async def list_meetings(
     )
     if series_id:
         q = q.where(Meeting.series_id == series_id)
+    elif no_series:
+        q = q.where(Meeting.series_id.is_(None))
     result = await db.execute(q)
     return result.scalars().all()
 
