@@ -18,6 +18,11 @@ class Profile(Base):
     current_plan_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("plans.id"), nullable=True)
     subscription_active_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     free_minutes_used: Mapped[int] = mapped_column(Integer, default=0)
+    # Calendar-month boundary: if this is in a previous month relative to the
+    # current charge, free_minutes_used is reset to 0 first. Lazy reset — also
+    # applied on every /profiles/me read so the UI stays truthful even for
+    # users who haven't recorded yet this month.
+    free_minutes_period_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     paid_minutes_used_this_cycle: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)

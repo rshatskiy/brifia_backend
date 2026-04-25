@@ -5,6 +5,7 @@ not user JWT tokens.
 """
 
 import uuid
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -19,6 +20,26 @@ from app.schemas.meeting import MeetingUpdate, MeetingStatusResponse, MeetingCre
 router = APIRouter(prefix="/internal", tags=["internal"])
 
 COMPLETED_STATUS = "completed"
+
+
+def _current_month_start() -> datetime:
+    now = datetime.now(timezone.utc)
+    return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+
+def reset_free_cycle_if_needed(profile: Profile) -> bool:
+    """Lazy monthly reset for the free tier. If the profile's recorded
+    period anchor is older than the current calendar month, zero the
+    counter and re-anchor. Returns True if a reset happened (caller
+    should commit). Idempotent — calling twice in the same month is a no-op.
+    """
+    month_start = _current_month_start()
+    anchor = profile.free_minutes_period_start
+    if anchor is None or anchor < month_start:
+        profile.free_minutes_used = 0
+        profile.free_minutes_period_start = month_start
+        return True
+    return False
 
 
 async def verify_api_key(x_api_key: str = Header(...)):
@@ -69,6 +90,8 @@ async def _charge_usage_if_first_completion(
 
     minutes = (meeting.duration_seconds + 59) // 60
     if is_free:
+        # Roll the cycle if we crossed a calendar month before charging.
+        reset_free_cycle_if_needed(profile)
         profile.free_minutes_used = (profile.free_minutes_used or 0) + minutes
     else:
         profile.paid_minutes_used_this_cycle = (

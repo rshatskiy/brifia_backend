@@ -20,6 +20,7 @@ class ProfileResponse(BaseModel):
     current_plan_id: UUID | None
     subscription_active_until: datetime | None
     free_minutes_used: int
+    free_minutes_period_start: datetime | None
     paid_minutes_used_this_cycle: int
     created_at: datetime
     updated_at: datetime
