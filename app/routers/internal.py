@@ -11,17 +11,56 @@ from sqlalchemy import select
 from app.database import get_db
 from app.models.meeting import Meeting
 from app.models.user import User
+from app.models.profile import Profile
 from app.config import get_settings
 from app.websocket_manager import ws_manager
 from app.schemas.meeting import MeetingUpdate, MeetingStatusResponse, MeetingCreateInternal, MeetingDetail
 
 router = APIRouter(prefix="/internal", tags=["internal"])
 
+COMPLETED_STATUS = "completed"
+
 
 async def verify_api_key(x_api_key: str = Header(...)):
     settings = get_settings()
     if x_api_key != settings.faster_whisper_api_key:
         raise HTTPException(status_code=403, detail="Invalid API key")
+
+
+async def _charge_usage_if_first_completion(
+    db: AsyncSession,
+    meeting: Meeting,
+    was_completed: bool,
+) -> None:
+    """When a meeting flips into 'completed' for the first time, bill its
+    duration against the user's plan minutes. Idempotent — once the meeting
+    is already 'completed', subsequent updates do nothing.
+
+    Picks the right counter by plan: paid users go to
+    ``paid_minutes_used_this_cycle`` (reset on each paid renewal), free users
+    go to ``free_minutes_used`` (the lifetime free quota).
+    """
+    if was_completed:
+        return
+    if meeting.status != COMPLETED_STATUS:
+        return
+    if not meeting.duration_seconds or meeting.duration_seconds <= 0:
+        return
+
+    profile_q = await db.execute(
+        select(Profile).where(Profile.user_id == meeting.user_id)
+    )
+    profile = profile_q.scalar_one_or_none()
+    if profile is None:
+        return
+
+    minutes = (meeting.duration_seconds + 59) // 60
+    if profile.current_plan_id is not None:
+        profile.paid_minutes_used_this_cycle = (
+            profile.paid_minutes_used_this_cycle or 0
+        ) + minutes
+    else:
+        profile.free_minutes_used = (profile.free_minutes_used or 0) + minutes
 
 
 @router.post("/meetings", response_model=MeetingDetail, status_code=201, dependencies=[Depends(verify_api_key)])
@@ -76,8 +115,10 @@ async def update_meeting_from_whisper(
     if not meeting:
         raise HTTPException(status_code=404, detail="Meeting not found")
 
+    was_completed = meeting.status == COMPLETED_STATUS
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(meeting, field, value)
+    await _charge_usage_if_first_completion(db, meeting, was_completed)
     await db.commit()
     await db.refresh(meeting)
 

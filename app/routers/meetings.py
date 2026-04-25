@@ -6,6 +6,7 @@ from app.database import get_db
 from app.models.user import User
 from app.models.meeting import Meeting
 from app.auth import get_current_user
+from app.routers.internal import _charge_usage_if_first_completion, COMPLETED_STATUS
 from app.schemas.meeting import (
     MeetingCreate, MeetingUpdate, MeetingListItem,
     MeetingDetail, MeetingTranscriptResponse, MeetingStatusResponse,
@@ -174,8 +175,12 @@ async def update_meeting(
     if not meeting:
         raise HTTPException(status_code=404, detail="Meeting not found")
 
+    was_completed = meeting.status == COMPLETED_STATUS
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(meeting, field, value)
+    # If a client manually flips a meeting into completed (rare — usually the
+    # transcription pipeline does this via /internal), still charge the usage.
+    await _charge_usage_if_first_completion(db, meeting, was_completed)
     await db.commit()
     await db.refresh(meeting)
 
