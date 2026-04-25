@@ -42,6 +42,19 @@ async def create_meeting(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    # Idempotent when the client supplies an id — repeated calls with the same
+    # id return the existing meeting. Lets the mobile client retry registration
+    # safely after network errors without creating duplicates.
+    if body.id is not None:
+        existing = await db.execute(
+            select(Meeting).where(Meeting.id == body.id)
+        )
+        existing_meeting = existing.scalar_one_or_none()
+        if existing_meeting is not None:
+            if existing_meeting.user_id != user.id:
+                raise HTTPException(status_code=409, detail="Meeting id already exists")
+            return existing_meeting
+
     meeting = Meeting(user_id=user.id, **body.model_dump(exclude_unset=True))
     db.add(meeting)
     await db.commit()

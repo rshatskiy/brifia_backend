@@ -2,6 +2,7 @@ import uuid
 import hashlib
 from datetime import datetime, timedelta, timezone
 from jose import jwt, JWTError
+from jose.exceptions import ExpiredSignatureError
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -42,17 +43,23 @@ def create_refresh_token() -> str:
 
 
 def decode_access_token(token: str) -> str:
+    # All failures return 401 for backward compat with old clients (which only branch on 401).
+    # X-Auth-Reason header lets new clients distinguish: "expired" → try /auth/refresh;
+    # any other reason → re-login (refresh won't help).
     settings = get_settings()
     try:
         payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
-        if payload.get("type") != "access":
-            raise HTTPException(status_code=401, detail="Invalid token type")
-        user_id = payload.get("sub")
-        if not user_id:
-            raise HTTPException(status_code=401, detail="Invalid token")
-        return user_id
+    except ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired", headers={"X-Auth-Reason": "expired"})
     except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
+        raise HTTPException(status_code=401, detail="Invalid token", headers={"X-Auth-Reason": "invalid"})
+
+    if payload.get("type") != "access":
+        raise HTTPException(status_code=401, detail="Invalid token type", headers={"X-Auth-Reason": "wrong_type"})
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid token payload", headers={"X-Auth-Reason": "no_subject"})
+    return user_id
 
 
 async def get_current_user(

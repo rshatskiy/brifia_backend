@@ -4,12 +4,28 @@ from uuid import UUID
 
 
 class MeetingCreate(BaseModel):
+    # Optional client-supplied id. When present, makes meeting creation idempotent
+    # by this UUID (acts as local_meeting_uuid). When absent, server generates one.
+    # Lets the mobile client commit to a single identifier at recording start —
+    # before any network round-trip can fail — and reuse it across registration,
+    # upload initiation, and transcription.
+    id: UUID | None = None
     title: str | None = None
     status: str = "pending_upload"
     duration_seconds: int | None = None
     local_filename: str | None = None
     series_id: UUID | None = None
     prompt_id: UUID | None = None
+
+
+class MeetingCreateInternal(BaseModel):
+    # Used by faster-whisper to register a meeting if the client failed to.
+    id: UUID
+    user_id: UUID
+    title: str | None = None
+    status: str = "pending_upload"
+    duration_seconds: int | None = None
+    local_filename: str | None = None
 
 
 class MeetingUpdate(BaseModel):

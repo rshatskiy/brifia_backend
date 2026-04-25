@@ -76,6 +76,19 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
 
 @router.post("/refresh", response_model=TokenResponse)
 async def refresh(req: RefreshRequest, db: AsyncSession = Depends(get_db)):
+    # No-rotation refresh: issue a new access token but re-use the same refresh token.
+    #
+    # Why no rotation:
+    # The previous implementation deleted the old refresh token immediately on use
+    # and issued a new one. When the mobile client made parallel /refresh calls
+    # from foreground UI, BackgroundUploadService and the WebSocket reconnect
+    # (all reacting to a single 401), only the first won — every other request
+    # found the old token already deleted and got 401, which the client
+    # interpreted as "session lost", forcing logout and breaking active recordings.
+    #
+    # Disabling rotation eliminates the race entirely. The refresh token keeps
+    # its original 30-day TTL; on suspected compromise the user signs out, which
+    # deletes the refresh token from the DB and revokes it for all clients.
     token_h = hash_token(req.refresh_token)
     result = await db.execute(
         select(RefreshToken).where(
@@ -92,10 +105,12 @@ async def refresh(req: RefreshRequest, db: AsyncSession = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
 
-    await db.delete(rt)
-    await db.commit()
-
-    return await _issue_tokens(user, db)
+    new_access = create_access_token(str(user.id))
+    return TokenResponse(
+        access_token=new_access,
+        refresh_token=req.refresh_token,
+        user_id=str(user.id),
+    )
 
 
 @router.post("/oauth", response_model=TokenResponse)

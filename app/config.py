@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://user:password@localhost:5432/brifia"
     jwt_secret: str = "change-me"
     jwt_algorithm: str = "HS256"
-    access_token_expire_minutes: int = 30
+    access_token_expire_minutes: int = 1440  # 24h — was 30min, raised for B2C recorder use case (long meetings)
     refresh_token_expire_days: int = 30
 
     google_client_id: str = ""
