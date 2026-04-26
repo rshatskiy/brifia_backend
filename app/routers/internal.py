@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, update
 from app.database import get_db
 from app.models.meeting import Meeting
 from app.models.user import User
@@ -370,3 +370,23 @@ async def claim_job(
         prompt_text=prompt_text,
         prompt_model=prompt_model,
     )
+
+
+@router.post("/jobs/{job_id}/heartbeat", dependencies=[Depends(verify_api_key)])
+async def job_heartbeat(
+    job_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Worker pings every 30s to prove it's still alive.
+
+    No-ops on already-terminal jobs (won't fight with concurrent /complete).
+    """
+    result = await db.execute(
+        update(ProcessingJob)
+        .where(ProcessingJob.id == job_id, ProcessingJob.status == "claimed")
+        .values(heartbeat_at=datetime.now(timezone.utc))
+    )
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Job not claimed or unknown")
+    await db.commit()
+    return {"ok": True}
