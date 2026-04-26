@@ -10,7 +10,11 @@ async def lifespan(app: FastAPI):
     # Create tables on startup (use Alembic migrations in production)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    from app.stalekeeper import attach_to_app
+    attach_to_app(app)
     yield
+    if hasattr(app.state, "stalekeeper_scheduler"):
+        app.state.stalekeeper_scheduler.shutdown()
     await engine.dispose()
 
 
