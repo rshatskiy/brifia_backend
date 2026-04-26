@@ -5,6 +5,7 @@ from sqlalchemy import select, func, delete
 from app.database import get_db
 from app.models.user import User
 from app.models.meeting import Meeting
+from app.models.participant import MeetingSpeaker, Participant
 from app.auth import get_current_user
 from app.routers.internal import _charge_usage_if_first_completion, COMPLETED_STATUS
 from app.schemas.meeting import (
@@ -12,6 +13,7 @@ from app.schemas.meeting import (
     MeetingDetail, MeetingTranscriptResponse, MeetingStatusResponse,
     MeetingCountsResponse,
 )
+from app.schemas.participant import MeetingSpeakerOut, ParticipantOut
 from app.websocket_manager import ws_manager
 
 router = APIRouter(prefix="/api/v1/meetings", tags=["meetings"])
@@ -210,3 +212,34 @@ async def delete_meeting(
     await db.commit()
 
     await ws_manager.notify_user(str(user.id), "meeting.deleted", {"id": str(meeting_id)})
+
+
+@router.get("/{meeting_id}/speakers", response_model=list[MeetingSpeakerOut])
+async def list_meeting_speakers(
+    meeting_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    # Authz check
+    meeting_q = await db.execute(
+        select(Meeting).where(Meeting.id == meeting_id, Meeting.user_id == user.id)
+    )
+    if meeting_q.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+
+    rows = await db.execute(
+        select(MeetingSpeaker, Participant)
+        .outerjoin(Participant, Participant.id == MeetingSpeaker.participant_id)
+        .where(MeetingSpeaker.meeting_id == meeting_id)
+        .order_by(MeetingSpeaker.speaker_label.asc())
+    )
+    out = []
+    for sp, p in rows.all():
+        item = MeetingSpeakerOut(
+            speaker_label=sp.speaker_label,
+            participant=ParticipantOut.model_validate(p) if p is not None else None,
+            speaking_seconds=sp.speaking_seconds,
+            name_suggestions=sp.name_suggestions or [],
+        )
+        out.append(item)
+    return out
