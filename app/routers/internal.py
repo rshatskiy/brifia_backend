@@ -16,6 +16,9 @@ from app.models.profile import Profile
 from app.config import get_settings
 from app.websocket_manager import ws_manager
 from app.schemas.meeting import MeetingUpdate, MeetingStatusResponse, MeetingCreateInternal, MeetingDetail
+from app.constants.meeting_status import MeetingStatus, IN_FLIGHT_STATUSES, TERMINAL_STATUSES
+from app.models.processing_job import ProcessingJob
+from app.schemas.processing_job import JobCreate
 
 router = APIRouter(prefix="/internal", tags=["internal"])
 
@@ -46,6 +49,44 @@ async def verify_api_key(x_api_key: str = Header(...)):
     settings = get_settings()
     if x_api_key != settings.faster_whisper_api_key:
         raise HTTPException(status_code=403, detail="Invalid API key")
+
+
+async def _set_meeting_status(
+    db: AsyncSession,
+    meeting: Meeting,
+    new_status: str,
+    *,
+    error_message: str | None = None,
+    set_processing_started: bool = False,
+) -> None:
+    """Single helper for any internal status change.
+
+    Updates Meeting.status, optionally error_message and processing_started_at,
+    then pushes meeting.updated via WebSocket. Does NOT commit — caller manages
+    the transaction. Pairs with _charge_usage_if_first_completion which is
+    invoked separately when status flips to completed.
+    """
+    if new_status not in {s.value for s in MeetingStatus}:
+        raise ValueError(f"Unknown meeting status: {new_status}")
+
+    meeting.status = new_status
+    if error_message is not None:
+        meeting.error_message = error_message
+    elif new_status not in TERMINAL_STATUSES and meeting.error_message:
+        # Clearing error_message on retry path
+        meeting.error_message = None
+    if set_processing_started:
+        meeting.processing_started_at = datetime.now(timezone.utc)
+
+    await ws_manager.notify_user(
+        str(meeting.user_id),
+        "meeting.updated",
+        {
+            "id": str(meeting.id),
+            "status": new_status,
+            "error_message": meeting.error_message,
+        },
+    )
 
 
 async def _charge_usage_if_first_completion(
@@ -217,3 +258,41 @@ async def get_meeting_prompt(
         return {"prompt_text": None, "model": "deepseek-chat"}
 
     return {"prompt_text": prompt.prompt_text, "model": prompt.model}
+
+
+@router.post("/jobs", status_code=201, dependencies=[Depends(verify_api_key)])
+async def create_job(
+    body: JobCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    """Called by faster-whisper FastAPI after merging chunks.
+
+    Idempotent: if a pending or claimed job already exists for this meeting,
+    return it instead of creating a duplicate.
+    """
+    meeting_q = await db.execute(select(Meeting).where(Meeting.id == body.meeting_id))
+    meeting = meeting_q.scalar_one_or_none()
+    if meeting is None:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+
+    existing_q = await db.execute(
+        select(ProcessingJob).where(
+            ProcessingJob.meeting_id == body.meeting_id,
+            ProcessingJob.status.in_(["pending", "claimed"]),
+        )
+    )
+    existing = existing_q.scalar_one_or_none()
+    if existing is not None:
+        return {"job_id": str(existing.id), "duplicate": True}
+
+    job = ProcessingJob(
+        meeting_id=body.meeting_id,
+        audio_local_path=body.audio_local_path,
+        priority=body.priority,
+        expected_duration_seconds=body.expected_duration_seconds,
+    )
+    db.add(job)
+    await _set_meeting_status(db, meeting, MeetingStatus.QUEUED.value)
+    await db.commit()
+    await db.refresh(job)
+    return {"job_id": str(job.id), "duplicate": False}
