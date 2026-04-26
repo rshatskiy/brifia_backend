@@ -6,8 +6,9 @@ are idempotent so accidental double-execution is safe.
 """
 import logging
 from datetime import datetime, timedelta, timezone
-from sqlalchemy import select
+from sqlalchemy import select, func
 from app.database import async_session
+from app.metrics import processing_jobs_pending
 from app.models.processing_job import ProcessingJob
 from app.models.meeting import Meeting
 from app.constants.meeting_status import MeetingStatus, IN_FLIGHT_STATUSES
@@ -95,6 +96,23 @@ async def expire_orphan_meetings() -> int:
     return expired
 
 
+async def update_queue_gauges() -> None:
+    """Refresh Prometheus gauges from current DB state."""
+    try:
+        async with async_session() as db:
+            result = await db.execute(
+                select(ProcessingJob.priority, func.count(ProcessingJob.id))
+                .where(ProcessingJob.status == "pending")
+                .group_by(ProcessingJob.priority)
+            )
+            counts = {p: c for p, c in result.all()}
+        processing_jobs_pending.labels(priority="realtime").set(counts.get("realtime", 0))
+        processing_jobs_pending.labels(priority="background").set(counts.get("background", 0))
+    except Exception:
+        logger.exception("stalekeeper: update_queue_gauges failed")
+        # Don't re-raise — gauge update is best-effort, shouldn't kill scheduler
+
+
 def attach_to_app(app):
     """Register stalekeeper jobs into FastAPI lifespan via APScheduler.
 
@@ -106,6 +124,7 @@ def attach_to_app(app):
     scheduler = AsyncIOScheduler()
     scheduler.add_job(revive_stalled_jobs, "interval", minutes=1, id="revive_stalled_jobs")
     scheduler.add_job(expire_orphan_meetings, "interval", hours=1, id="expire_orphan_meetings")
+    scheduler.add_job(update_queue_gauges, "interval", seconds=15, id="update_queue_gauges")
     try:
         scheduler.start()
         app.state.stalekeeper_scheduler = scheduler

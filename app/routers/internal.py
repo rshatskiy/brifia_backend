@@ -20,6 +20,11 @@ from app.constants.meeting_status import MeetingStatus, IN_FLIGHT_STATUSES, TERM
 from app.models.processing_job import ProcessingJob
 from app.schemas.processing_job import JobCreate, JobClaimResponse, JobProgress, JobComplete, JobFail
 from app.models.prompt import Prompt
+from app.metrics import (
+    processing_jobs_failures_total,
+    processing_jobs_retries_total,
+    processing_jobs_duration_seconds,
+)
 
 router = APIRouter(prefix="/internal", tags=["internal"])
 
@@ -460,6 +465,11 @@ async def job_complete(
 
     job.status = "done"
 
+    # Total processing duration (queued → completed) for the metric
+    if meeting.processing_started_at is not None:
+        total_seconds = (datetime.now(timezone.utc) - meeting.processing_started_at).total_seconds()
+        processing_jobs_duration_seconds.labels(stage="total").observe(total_seconds)
+
     # speakers: list will be persisted in Task 14 once meeting_speakers table exists.
     # For now the speakers field is accepted but ignored — preserves API contract
     # while we land migrations incrementally.
@@ -498,6 +508,7 @@ async def job_fail(
     if body.retriable and job.attempts < job.max_attempts:
         # Silent retry: job → pending, meeting → queued
         job.status = "pending"
+        processing_jobs_retries_total.inc()
         job.claimed_by = None
         job.claimed_at = None
         job.heartbeat_at = None
@@ -507,6 +518,19 @@ async def job_fail(
         # Terminal
         job.status = "failed"
         job.error_message = body.error_message
+        # Classify failure reason for the metric
+        msg_lower = body.error_message.lower()
+        if "timeout" in msg_lower:
+            reason = "worker_timeout"
+        elif "whisper" in msg_lower:
+            reason = "whisper"
+        elif "pyannote" in msg_lower:
+            reason = "pyannote"
+        elif "deepseek" in msg_lower:
+            reason = "deepseek"
+        else:
+            reason = "unknown"
+        processing_jobs_failures_total.labels(reason=reason).inc()
         await _set_meeting_status(
             db, meeting, MeetingStatus.ERROR.value, error_message=body.error_message
         )
