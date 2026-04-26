@@ -12,14 +12,17 @@ client doesn't need to sort.
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, literal
+from sqlalchemy import select, literal, update as sa_update
 from app.database import get_db
 from app.models.user import User
 from app.models.meeting import Meeting
 from app.models.series import Series
 from app.models.participant import Participant, ParticipantSeriesLink, MeetingSpeaker
 from app.auth import get_current_user
-from app.schemas.participant import ParticipantOut, ParticipantCreate, ParticipantWithMeetings, ParticipantUpdate
+from app.schemas.participant import (
+    ParticipantOut, ParticipantCreate, ParticipantWithMeetings,
+    ParticipantUpdate, ParticipantMerge,
+)
 from app.websocket_manager import ws_manager
 
 router = APIRouter(prefix="/api/v1/participants", tags=["participants"])
@@ -182,3 +185,77 @@ async def delete_participant(
     await db.commit()
     await ws_manager.notify_user(str(user.id), "participant.deleted", {"id": str(participant_id)})
     return None
+
+
+@router.post("/{participant_id}/merge", response_model=ParticipantOut)
+async def merge_participants(
+    participant_id: uuid.UUID,
+    body: ParticipantMerge,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Merge `body.absorb_id` into `participant_id`.
+
+    The absorb_id participant is deleted, its meeting_speaker bindings and
+    series associations are reassigned to participant_id. Atomic — single
+    transaction.
+    """
+    if participant_id == body.absorb_id:
+        raise HTTPException(status_code=400, detail="Cannot merge a participant into itself")
+
+    # Verify both belong to current user
+    keep_q = await db.execute(
+        select(Participant).where(Participant.id == participant_id, Participant.user_id == user.id)
+    )
+    keep = keep_q.scalar_one_or_none()
+    absorb_q = await db.execute(
+        select(Participant).where(Participant.id == body.absorb_id, Participant.user_id == user.id)
+    )
+    absorb = absorb_q.scalar_one_or_none()
+    if keep is None or absorb is None:
+        raise HTTPException(status_code=404, detail="One or both participants not found")
+
+    # Reassign meeting_speakers
+    await db.execute(
+        sa_update(MeetingSpeaker)
+        .where(MeetingSpeaker.participant_id == body.absorb_id)
+        .values(participant_id=participant_id)
+    )
+
+    # Merge participant_series — sum meetings_count for overlapping series, copy others
+    absorb_links_q = await db.execute(
+        select(ParticipantSeriesLink).where(ParticipantSeriesLink.participant_id == body.absorb_id)
+    )
+    absorb_links = absorb_links_q.scalars().all()
+    for link in absorb_links:
+        existing_q = await db.execute(
+            select(ParticipantSeriesLink).where(
+                ParticipantSeriesLink.participant_id == participant_id,
+                ParticipantSeriesLink.series_id == link.series_id,
+            )
+        )
+        existing = existing_q.scalar_one_or_none()
+        if existing is not None:
+            existing.meetings_count += link.meetings_count
+            if link.first_seen_at < existing.first_seen_at:
+                existing.first_seen_at = link.first_seen_at
+            await db.delete(link)
+        else:
+            # PK is composite (participant_id, series_id) — to "transfer" a
+            # link, delete the absorb-side row and insert a fresh one for keep-side.
+            db.add(ParticipantSeriesLink(
+                participant_id=participant_id,
+                series_id=link.series_id,
+                first_seen_at=link.first_seen_at,
+                meetings_count=link.meetings_count,
+            ))
+            await db.delete(link)
+
+    await db.delete(absorb)
+    await db.commit()
+    await db.refresh(keep)
+    await ws_manager.notify_user(str(user.id), "participant.merged", {
+        "kept_id": str(participant_id),
+        "absorbed_id": str(body.absorb_id),
+    })
+    return keep
