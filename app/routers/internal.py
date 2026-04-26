@@ -18,7 +18,7 @@ from app.websocket_manager import ws_manager
 from app.schemas.meeting import MeetingUpdate, MeetingStatusResponse, MeetingCreateInternal, MeetingDetail
 from app.constants.meeting_status import MeetingStatus, IN_FLIGHT_STATUSES, TERMINAL_STATUSES
 from app.models.processing_job import ProcessingJob
-from app.schemas.processing_job import JobCreate, JobClaimResponse, JobProgress, JobComplete
+from app.schemas.processing_job import JobCreate, JobClaimResponse, JobProgress, JobComplete, JobFail
 from app.models.prompt import Prompt
 
 router = APIRouter(prefix="/internal", tags=["internal"])
@@ -466,3 +466,50 @@ async def job_complete(
 
     await db.commit()
     return {"ok": True, "duplicate": False}
+
+
+@router.post("/jobs/{job_id}/fail", dependencies=[Depends(verify_api_key)])
+async def job_fail(
+    job_id: uuid.UUID,
+    body: JobFail,
+    db: AsyncSession = Depends(get_db),
+):
+    """Worker hit an error.
+
+    Retriable + budget remaining → bounce back to pending (silent retry,
+    Meeting.status returns to 'queued'). Otherwise terminal failure with
+    Meeting.status='error'.
+    """
+    job_q = await db.execute(
+        select(ProcessingJob)
+        .where(ProcessingJob.id == job_id)
+        .with_for_update()
+    )
+    job = job_q.scalar_one_or_none()
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.status in ("done", "failed"):
+        return {"ok": True, "duplicate": True}
+
+    meeting_q = await db.execute(select(Meeting).where(Meeting.id == job.meeting_id))
+    meeting = meeting_q.scalar_one()
+
+    job.attempts += 1
+    if body.retriable and job.attempts < job.max_attempts:
+        # Silent retry: job → pending, meeting → queued
+        job.status = "pending"
+        job.claimed_by = None
+        job.claimed_at = None
+        job.heartbeat_at = None
+        job.error_message = body.error_message  # for diagnostics, not user-visible
+        await _set_meeting_status(db, meeting, MeetingStatus.QUEUED.value)
+    else:
+        # Terminal
+        job.status = "failed"
+        job.error_message = body.error_message
+        await _set_meeting_status(
+            db, meeting, MeetingStatus.ERROR.value, error_message=body.error_message
+        )
+
+    await db.commit()
+    return {"ok": True, "duplicate": False, "retried": job.status == "pending"}
