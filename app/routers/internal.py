@@ -18,7 +18,7 @@ from app.websocket_manager import ws_manager
 from app.schemas.meeting import MeetingUpdate, MeetingStatusResponse, MeetingCreateInternal, MeetingDetail
 from app.constants.meeting_status import MeetingStatus, IN_FLIGHT_STATUSES, TERMINAL_STATUSES
 from app.models.processing_job import ProcessingJob
-from app.schemas.processing_job import JobCreate, JobClaimResponse
+from app.schemas.processing_job import JobCreate, JobClaimResponse, JobProgress
 from app.models.prompt import Prompt
 
 router = APIRouter(prefix="/internal", tags=["internal"])
@@ -388,5 +388,32 @@ async def job_heartbeat(
     )
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="Job not claimed or unknown")
+    await db.commit()
+    return {"ok": True}
+
+
+@router.post("/jobs/{job_id}/progress", dependencies=[Depends(verify_api_key)])
+async def job_progress(
+    job_id: uuid.UUID,
+    body: JobProgress,
+    db: AsyncSession = Depends(get_db),
+):
+    """Worker reports a stage transition.
+
+    Updates Meeting.status (which pushes WebSocket meeting.updated)
+    so the client sees 'Расшифровываем...' / 'Анализируем...'.
+    """
+    job_q = await db.execute(select(ProcessingJob).where(ProcessingJob.id == job_id))
+    job = job_q.scalar_one_or_none()
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.status != "claimed":
+        raise HTTPException(status_code=409, detail=f"Job not in claimed state (got {job.status})")
+
+    meeting_q = await db.execute(select(Meeting).where(Meeting.id == job.meeting_id))
+    meeting = meeting_q.scalar_one()
+    new_status = MeetingStatus.TRANSCRIBING.value if body.stage == "transcribing" else MeetingStatus.ANALYZING.value
+
+    await _set_meeting_status(db, meeting, new_status)
     await db.commit()
     return {"ok": True}
