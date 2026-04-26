@@ -18,7 +18,8 @@ from app.websocket_manager import ws_manager
 from app.schemas.meeting import MeetingUpdate, MeetingStatusResponse, MeetingCreateInternal, MeetingDetail
 from app.constants.meeting_status import MeetingStatus, IN_FLIGHT_STATUSES, TERMINAL_STATUSES
 from app.models.processing_job import ProcessingJob
-from app.schemas.processing_job import JobCreate
+from app.schemas.processing_job import JobCreate, JobClaimResponse
+from app.models.prompt import Prompt
 
 router = APIRouter(prefix="/internal", tags=["internal"])
 
@@ -237,8 +238,6 @@ async def get_meeting_prompt(
     db: AsyncSession = Depends(get_db),
 ):
     """Get the prompt associated with a meeting (for analysis)."""
-    from app.models.prompt import Prompt
-
     result = await db.execute(select(Meeting).where(Meeting.id == meeting_id))
     meeting = result.scalar_one_or_none()
     if not meeting:
@@ -296,3 +295,78 @@ async def create_job(
     await db.commit()
     await db.refresh(job)
     return {"job_id": str(job.id), "duplicate": False}
+
+
+@router.post("/jobs/claim", dependencies=[Depends(verify_api_key)])
+async def claim_job(
+    worker_id: str,  # Query param
+    db: AsyncSession = Depends(get_db),
+):
+    """Atomic SELECT FOR UPDATE SKIP LOCKED + UPDATE claimed.
+
+    Returns null when the queue is empty. Worker should sleep+retry.
+    Worker_id is opaque — used for heartbeat tracking and operational
+    visibility ("which worker is doing what").
+    """
+    # SELECT FOR UPDATE SKIP LOCKED — atomic across concurrent workers
+    job_q = await db.execute(
+        select(ProcessingJob)
+        .where(ProcessingJob.status == "pending")
+        .order_by(
+            # 'realtime' before 'background' — alphabetical works because b < r,
+            # we want realtime first, so reverse:
+            ProcessingJob.priority.desc(),
+            ProcessingJob.created_at.asc(),
+        )
+        .with_for_update(skip_locked=True)
+        .limit(1)
+    )
+    job = job_q.scalar_one_or_none()
+    if job is None:
+        return None
+
+    # Mutate it
+    now = datetime.now(timezone.utc)
+    job.status = "claimed"
+    job.claimed_by = worker_id
+    job.claimed_at = now
+    job.heartbeat_at = now
+
+    # Load meeting + prompt for the response
+    meeting_q = await db.execute(select(Meeting).where(Meeting.id == job.meeting_id))
+    meeting = meeting_q.scalar_one()
+
+    prompt_text, prompt_model = None, None
+    if meeting.prompt_id is not None:
+        p_q = await db.execute(select(Prompt).where(Prompt.id == meeting.prompt_id))
+        p = p_q.scalar_one_or_none()
+        if p is not None:
+            prompt_text, prompt_model = p.prompt_text, p.model
+    if prompt_text is None:
+        # Fallback to default
+        p_q = await db.execute(
+            select(Prompt).where(Prompt.use_case == "meeting_protocol", Prompt.is_active == True).limit(1)
+        )
+        p = p_q.scalar_one_or_none()
+        if p is not None:
+            prompt_text, prompt_model = p.prompt_text, p.model
+
+    # First claim — set processing_started_at; re-claim does NOT reset it
+    set_started = meeting.processing_started_at is None
+    await _set_meeting_status(
+        db, meeting, MeetingStatus.TRANSCRIBING.value, set_processing_started=set_started
+    )
+    await db.commit()
+    await db.refresh(job)
+
+    return JobClaimResponse(
+        id=job.id,
+        meeting_id=job.meeting_id,
+        audio_local_path=job.audio_local_path,
+        priority=job.priority,
+        attempts=job.attempts,
+        expected_duration_seconds=job.expected_duration_seconds,
+        user_id=meeting.user_id,
+        prompt_text=prompt_text,
+        prompt_model=prompt_model,
+    )
