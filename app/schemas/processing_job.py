@@ -4,7 +4,6 @@ Body shapes for the worker on the transcription machine. All endpoints
 authenticated via X-API-Key (FASTER_WHISPER_API_KEY), not user JWT.
 """
 import uuid
-from datetime import datetime
 from typing import Literal
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -57,7 +56,7 @@ class JobClaimResponse(BaseModel):
     id: uuid.UUID
     meeting_id: uuid.UUID
     audio_local_path: str
-    priority: str
+    priority: Literal["realtime", "background"]
     attempts: int
     expected_duration_seconds: int | None = None
     # Joined fields for the worker to work standalone:
