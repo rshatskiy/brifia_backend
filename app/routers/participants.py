@@ -19,7 +19,7 @@ from app.models.meeting import Meeting
 from app.models.series import Series
 from app.models.participant import Participant, ParticipantSeriesLink, MeetingSpeaker
 from app.auth import get_current_user
-from app.schemas.participant import ParticipantOut, ParticipantCreate, ParticipantWithMeetings
+from app.schemas.participant import ParticipantOut, ParticipantCreate, ParticipantWithMeetings, ParticipantUpdate
 from app.websocket_manager import ws_manager
 
 router = APIRouter(prefix="/api/v1/participants", tags=["participants"])
@@ -137,3 +137,48 @@ async def get_participant(
     out.recent_meetings = recent
     out.series = series_list
     return out
+
+
+@router.patch("/{participant_id}", response_model=ParticipantOut)
+async def update_participant(
+    participant_id: uuid.UUID,
+    body: ParticipantUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    p_q = await db.execute(
+        select(Participant).where(Participant.id == participant_id, Participant.user_id == user.id)
+    )
+    p = p_q.scalar_one_or_none()
+    if p is None:
+        raise HTTPException(status_code=404, detail="Participant not found")
+
+    payload = body.model_dump(exclude_unset=True)
+    if "name" in payload:
+        payload["name"] = payload["name"].strip()
+        if not payload["name"]:
+            raise HTTPException(status_code=422, detail="name cannot be empty")
+    for k, v in payload.items():
+        setattr(p, k, v)
+    await db.commit()
+    await db.refresh(p)
+    await ws_manager.notify_user(str(user.id), "participant.updated", {"id": str(p.id)})
+    return p
+
+
+@router.delete("/{participant_id}", status_code=204)
+async def delete_participant(
+    participant_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    p_q = await db.execute(
+        select(Participant).where(Participant.id == participant_id, Participant.user_id == user.id)
+    )
+    p = p_q.scalar_one_or_none()
+    if p is None:
+        raise HTTPException(status_code=404, detail="Participant not found")
+    await db.delete(p)  # cascades on participant_series, SET NULL on meeting_speakers
+    await db.commit()
+    await ws_manager.notify_user(str(user.id), "participant.deleted", {"id": str(participant_id)})
+    return None
