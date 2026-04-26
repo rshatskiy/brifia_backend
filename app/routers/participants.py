@@ -17,7 +17,8 @@ from app.database import get_db
 from app.models.user import User
 from app.models.participant import Participant, ParticipantSeriesLink
 from app.auth import get_current_user
-from app.schemas.participant import ParticipantOut
+from app.schemas.participant import ParticipantOut, ParticipantCreate
+from app.websocket_manager import ws_manager
 
 router = APIRouter(prefix="/api/v1/participants", tags=["participants"])
 
@@ -72,3 +73,24 @@ async def list_participants(
             item.last_seen_in_series = lseen
         out.append(item)
     return out
+
+
+@router.post("", response_model=ParticipantOut, status_code=201)
+async def create_participant(
+    body: ParticipantCreate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    p = Participant(
+        user_id=user.id,
+        name=body.name.strip(),
+        email=body.email,
+        phone=body.phone,
+        role=body.role,
+        note=body.note,
+    )
+    db.add(p)
+    await db.commit()
+    await db.refresh(p)
+    await ws_manager.notify_user(str(user.id), "participant.created", {"id": str(p.id), "name": p.name})
+    return p
