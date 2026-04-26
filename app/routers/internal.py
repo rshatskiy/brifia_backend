@@ -18,7 +18,7 @@ from app.websocket_manager import ws_manager
 from app.schemas.meeting import MeetingUpdate, MeetingStatusResponse, MeetingCreateInternal, MeetingDetail
 from app.constants.meeting_status import MeetingStatus, IN_FLIGHT_STATUSES, TERMINAL_STATUSES
 from app.models.processing_job import ProcessingJob
-from app.schemas.processing_job import JobCreate, JobClaimResponse, JobProgress
+from app.schemas.processing_job import JobCreate, JobClaimResponse, JobProgress, JobComplete
 from app.models.prompt import Prompt
 
 router = APIRouter(prefix="/internal", tags=["internal"])
@@ -417,3 +417,48 @@ async def job_progress(
     await _set_meeting_status(db, meeting, new_status)
     await db.commit()
     return {"ok": True}
+
+
+@router.post("/jobs/{job_id}/complete", dependencies=[Depends(verify_api_key)])
+async def job_complete(
+    job_id: uuid.UUID,
+    body: JobComplete,
+    db: AsyncSession = Depends(get_db),
+):
+    """Worker successfully finished — apply results to the meeting."""
+    job_q = await db.execute(select(ProcessingJob).where(ProcessingJob.id == job_id))
+    job = job_q.scalar_one_or_none()
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.status not in ("claimed", "pending"):
+        # Idempotent: completing an already-done job returns ok
+        if job.status == "done":
+            return {"ok": True, "duplicate": True}
+        raise HTTPException(status_code=409, detail=f"Job not completable from {job.status}")
+
+    meeting_q = await db.execute(select(Meeting).where(Meeting.id == job.meeting_id))
+    meeting = meeting_q.scalar_one()
+
+    was_completed = meeting.status == MeetingStatus.COMPLETED.value
+    meeting.transcript_json = body.transcript_json
+    meeting.transcript = body.transcript
+    meeting.protocol = body.protocol
+    meeting.tasks_json = body.tasks_json
+    meeting.duration_seconds = body.duration_seconds
+
+    final_status = (
+        MeetingStatus.TRANSCRIPTION_EMPTY.value
+        if not body.transcript or not body.transcript.strip()
+        else MeetingStatus.COMPLETED.value
+    )
+    await _set_meeting_status(db, meeting, final_status)
+    await _charge_usage_if_first_completion(db, meeting, was_completed)
+
+    job.status = "done"
+
+    # speakers: list will be persisted in Task 14 once meeting_speakers table exists.
+    # For now the speakers field is accepted but ignored — preserves API contract
+    # while we land migrations incrementally.
+
+    await db.commit()
+    return {"ok": True, "duplicate": False}
