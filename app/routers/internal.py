@@ -426,7 +426,11 @@ async def job_complete(
     db: AsyncSession = Depends(get_db),
 ):
     """Worker successfully finished — apply results to the meeting."""
-    job_q = await db.execute(select(ProcessingJob).where(ProcessingJob.id == job_id))
+    job_q = await db.execute(
+        select(ProcessingJob)
+        .where(ProcessingJob.id == job_id)
+        .with_for_update()
+    )
     job = job_q.scalar_one_or_none()
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
