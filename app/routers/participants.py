@@ -15,9 +15,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, literal
 from app.database import get_db
 from app.models.user import User
-from app.models.participant import Participant, ParticipantSeriesLink
+from app.models.meeting import Meeting
+from app.models.series import Series
+from app.models.participant import Participant, ParticipantSeriesLink, MeetingSpeaker
 from app.auth import get_current_user
-from app.schemas.participant import ParticipantOut, ParticipantCreate
+from app.schemas.participant import ParticipantOut, ParticipantCreate, ParticipantWithMeetings
 from app.websocket_manager import ws_manager
 
 router = APIRouter(prefix="/api/v1/participants", tags=["participants"])
@@ -94,3 +96,44 @@ async def create_participant(
     await db.refresh(p)
     await ws_manager.notify_user(str(user.id), "participant.created", {"id": str(p.id), "name": p.name})
     return p
+
+
+@router.get("/{participant_id}", response_model=ParticipantWithMeetings)
+async def get_participant(
+    participant_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    p_q = await db.execute(
+        select(Participant).where(Participant.id == participant_id, Participant.user_id == user.id)
+    )
+    p = p_q.scalar_one_or_none()
+    if p is None:
+        raise HTTPException(status_code=404, detail="Participant not found")
+
+    # Recent 10 meetings via meeting_speakers join
+    recent_q = await db.execute(
+        select(Meeting.id, Meeting.title, Meeting.created_at)
+        .join(MeetingSpeaker, MeetingSpeaker.meeting_id == Meeting.id)
+        .where(MeetingSpeaker.participant_id == participant_id)
+        .order_by(Meeting.created_at.desc())
+        .limit(10)
+    )
+    recent = [{"id": str(mid), "title": title, "created_at": ca} for mid, title, ca in recent_q.all()]
+
+    # Series list via participant_series join
+    series_q = await db.execute(
+        select(Series.id, Series.name, ParticipantSeriesLink.meetings_count)
+        .join(ParticipantSeriesLink, ParticipantSeriesLink.series_id == Series.id)
+        .where(ParticipantSeriesLink.participant_id == participant_id)
+        .order_by(ParticipantSeriesLink.meetings_count.desc())
+    )
+    series_list = [
+        {"id": str(sid), "title": name, "meetings_count": mc}
+        for sid, name, mc in series_q.all()
+    ]
+
+    out = ParticipantWithMeetings.model_validate(p)
+    out.recent_meetings = recent
+    out.series = series_list
+    return out
