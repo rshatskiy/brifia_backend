@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update
+from sqlalchemy import select, update, delete
 from app.database import get_db
 from app.models.meeting import Meeting
 from app.models.user import User
@@ -18,6 +18,7 @@ from app.websocket_manager import ws_manager
 from app.schemas.meeting import MeetingUpdate, MeetingStatusResponse, MeetingCreateInternal, MeetingDetail
 from app.constants.meeting_status import MeetingStatus, IN_FLIGHT_STATUSES, TERMINAL_STATUSES
 from app.models.processing_job import ProcessingJob
+from app.models.participant import MeetingSpeaker
 from app.schemas.processing_job import JobCreate, JobClaimResponse, JobProgress, JobComplete, JobFail
 from app.models.prompt import Prompt
 from app.metrics import (
@@ -465,14 +466,23 @@ async def job_complete(
 
     job.status = "done"
 
+    # Persist speakers — idempotent via delete-then-insert
+    if body.speakers:
+        await db.execute(
+            delete(MeetingSpeaker).where(MeetingSpeaker.meeting_id == meeting.id)
+        )
+        for sp in body.speakers:
+            db.add(MeetingSpeaker(
+                meeting_id=meeting.id,
+                speaker_label=sp.label,
+                speaking_seconds=sp.speaking_seconds,
+                name_suggestions=sp.name_suggestions or None,
+            ))
+
     # Total processing duration (queued → completed) for the metric
     if meeting.processing_started_at is not None:
         total_seconds = (datetime.now(timezone.utc) - meeting.processing_started_at).total_seconds()
         processing_jobs_duration_seconds.labels(stage="total").observe(total_seconds)
-
-    # speakers: list will be persisted in Task 14 once meeting_speakers table exists.
-    # For now the speakers field is accepted but ignored — preserves API contract
-    # while we land migrations incrementally.
 
     await db.commit()
     return {"ok": True, "duplicate": False}
