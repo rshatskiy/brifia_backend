@@ -21,6 +21,8 @@ class Meeting(Base):
     tasks_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     series_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("series.id", ondelete="SET NULL"), nullable=True, index=True)
     prompt_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("prompts.id", ondelete="SET NULL"), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    processing_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 

@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine, Base
-from app.routers import auth, meetings, series, profiles, prompts, plans, payments, internal, uploads, ws
+from app.routers import auth, meetings, series, profiles, prompts, plans, payments, internal, uploads, ws, participants
 
 
 @asynccontextmanager
@@ -10,7 +10,11 @@ async def lifespan(app: FastAPI):
     # Create tables on startup (use Alembic migrations in production)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    from app.stalekeeper import attach_to_app
+    attach_to_app(app)
     yield
+    if hasattr(app.state, "stalekeeper_scheduler"):
+        app.state.stalekeeper_scheduler.shutdown()
     await engine.dispose()
 
 
@@ -32,6 +36,7 @@ app.include_router(profiles.router)
 app.include_router(prompts.router)
 app.include_router(plans.router)
 app.include_router(payments.router)
+app.include_router(participants.router)
 
 # Internal API for faster-whisper
 app.include_router(internal.router)
