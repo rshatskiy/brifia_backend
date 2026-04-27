@@ -17,6 +17,9 @@ depends_on = None
 
 def upgrade() -> None:
     op.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
+    # btree_gin lets us combine btree (user_id UUID) with gin_trgm (name)
+    # in a single index — needed for the ix_participants_name_trgm GIN below.
+    op.execute("CREATE EXTENSION IF NOT EXISTS btree_gin")
 
     op.create_table(
         "participants",
