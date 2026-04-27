@@ -49,3 +49,11 @@ app.include_router(ws.router)
 @app.get("/")
 async def root():
     return {"message": "Brifia API"}
+
+
+@app.get("/metrics")
+async def metrics():
+    """Prometheus scrape endpoint for app/metrics.py counters and gauges."""
+    from fastapi.responses import Response
+    from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
