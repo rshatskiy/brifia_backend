@@ -450,6 +450,8 @@ async def job_complete(
     meeting = meeting_q.scalar_one()
 
     was_completed = meeting.status == MeetingStatus.COMPLETED.value
+    if body.title:
+        meeting.title = body.title
     meeting.transcript_json = body.transcript_json
     meeting.transcript = body.transcript
     meeting.protocol = body.protocol
