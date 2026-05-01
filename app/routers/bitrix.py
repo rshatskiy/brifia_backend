@@ -152,7 +152,7 @@ async def oauth_init(
     return BitrixOAuthInitResponse(authorization_url=auth_url)
 
 
-@router.get("/oauth/callback")
+@router.api_route("/oauth/callback", methods=["GET", "HEAD"])
 async def oauth_callback(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -161,6 +161,11 @@ async def oauth_callback(
     error: str | None = Query(default=None),
     error_description: str | None = Query(default=None),
 ):
+    # Bitrix marketplace HEAD-probes this URL to validate it's reachable.
+    # A bare HEAD has no code/state — short-circuit to 200 so the dashboard
+    # accepts the URL. Real OAuth callbacks arrive as GET with params.
+    if request.method == "HEAD":
+        return HTMLResponse(status_code=200, content="")
     settings = get_settings()
 
     # Bitrix can redirect back with ?error=... before any code exchange. Detect
@@ -261,7 +266,7 @@ async def oauth_callback(
     return _redirect_success()
 
 
-@router.get("/oauth/success", response_class=HTMLResponse)
+@router.api_route("/oauth/success", methods=["GET", "HEAD"], response_class=HTMLResponse)
 async def oauth_success():
     # Plain HTML page the WebView watches for. Body content is not rendered to
     # the user — they'll have already returned to the app at this point — but
@@ -274,7 +279,7 @@ async def oauth_success():
     )
 
 
-@router.get("/oauth/error", response_class=HTMLResponse)
+@router.api_route("/oauth/error", methods=["GET", "HEAD"], response_class=HTMLResponse)
 async def oauth_error(
     error: str = Query(default="unknown"),
     details: str = Query(default=""),
@@ -300,8 +305,7 @@ async def oauth_error(
 # on the installed app. Brifia is a mobile-first app — settings live inside
 # the mobile UI — so this just shows a friendly redirect message.
 
-@router.post("/install", response_class=HTMLResponse)
-@router.get("/install", response_class=HTMLResponse)
+@router.api_route("/install", methods=["GET", "POST", "HEAD"], response_class=HTMLResponse)
 async def install_handler():
     return HTMLResponse(
         "<!doctype html><html><head><meta charset='utf-8'>"
@@ -313,8 +317,7 @@ async def install_handler():
     )
 
 
-@router.post("/settings", response_class=HTMLResponse)
-@router.get("/settings", response_class=HTMLResponse)
+@router.api_route("/settings", methods=["GET", "POST", "HEAD"], response_class=HTMLResponse)
 async def settings_handler():
     return HTMLResponse(
         "<!doctype html><html><head><meta charset='utf-8'>"
