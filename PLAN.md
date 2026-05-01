@@ -56,7 +56,8 @@
 - [x] `AccountScreen` — оплата через `/api/v1/payments/create`, веб-сессия
 - [x] `SubscriptionDetailsBottomSheet` — отмена через `/api/v1/payments/cancel`, `AppUser` вместо Supabase `User`
 - [x] `RecordingScreen` — убран `check-user-access` Edge Function
-- [x] `meeting_detail_screen.dart` — transcript загрузка через API, profile через API, bitrix через ApiClient
+- [x] `meeting_detail_screen.dart` — transcript загрузка через API, profile через API
+- [x] Bitrix24 OAuth — собственный бекенд: модель `BitrixIntegration`, миграция `20260501_0001`, роутер `/api/v1/bitrix/{oauth/init,oauth/callback,oauth/success,oauth/error,oauth/refresh,credentials,status}`. HMAC-подписанный state в callback. Клиент: `_connectBitrix`, `_fetchAndUpdateBitrixCredentialsFromSupabase`, `_refreshBitrixToken` через `ApiClient`. WebView ловит `$apiBaseUrl/api/v1/bitrix/oauth/{success,error}`. Удалён мёртвый `ExportTasksDialog` (~390 строк).
 - [x] `main.dart` — убраны все `Supabase.instance` ссылки
 - [x] `recording_screen.dart` — убран `check-user-access` Edge Function
 - [x] `callbackDispatcher` — token из SharedPreferences, refresh через `/auth/refresh`, статус через API

@@ -9,10 +9,12 @@ from app.models.upload import Upload
 from app.models.web_session_token import WebSessionToken
 from app.models.processing_job import ProcessingJob
 from app.models.participant import Participant, ParticipantSeriesLink, MeetingSpeaker
+from app.models.bitrix_integration import BitrixIntegration
 
 __all__ = [
     "User", "RefreshToken", "Profile", "Meeting",
     "Series", "Prompt", "Plan", "PaymentMethod", "PaymentLog", "Upload",
     "WebSessionToken", "ProcessingJob",
     "Participant", "ParticipantSeriesLink", "MeetingSpeaker",
+    "BitrixIntegration",
 ]

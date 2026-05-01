@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine, Base
-from app.routers import auth, meetings, series, profiles, prompts, plans, payments, internal, uploads, ws, participants
+from app.routers import auth, meetings, series, profiles, prompts, plans, payments, internal, uploads, ws, participants, bitrix
 
 
 @asynccontextmanager
@@ -37,6 +37,7 @@ app.include_router(prompts.router)
 app.include_router(plans.router)
 app.include_router(payments.router)
 app.include_router(participants.router)
+app.include_router(bitrix.router)
 
 # Internal API for faster-whisper
 app.include_router(internal.router)

@@ -23,6 +23,14 @@ class Settings(BaseSettings):
 
     faster_whisper_api_key: str = ""
 
+    # Bitrix24 OAuth — registered marketplace app credentials.
+    # bitrix_redirect_base must be the public base URL of this API
+    # (e.g. https://api2.brifia.ru); it's used to build /oauth/callback,
+    # /oauth/success and /oauth/error URLs that the WebView intercepts.
+    bitrix_client_id: str = ""
+    bitrix_client_secret: str = ""
+    bitrix_redirect_base: str = "https://api2.brifia.ru"
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 
