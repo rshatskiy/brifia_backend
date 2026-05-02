@@ -19,6 +19,17 @@ from app.schemas.meeting import MeetingUpdate, MeetingStatusResponse, MeetingCre
 from app.constants.meeting_status import MeetingStatus, IN_FLIGHT_STATUSES, TERMINAL_STATUSES
 from app.models.processing_job import ProcessingJob
 from app.models.participant import MeetingSpeaker
+from app.services.voice_profile import (
+    AUTO_BIND_THRESHOLD,
+    HIGH_SUGGESTION_THRESHOLD,
+    MEDIUM_SUGGESTION_THRESHOLD,
+    load_user_profiles,
+    match_speaker,
+    update_voice_profile,
+)
+import logging
+
+logger = logging.getLogger(__name__)
 from app.schemas.processing_job import JobCreate, JobClaimResponse, JobProgress, JobComplete, JobFail
 from app.models.prompt import Prompt
 from app.metrics import (
@@ -469,17 +480,28 @@ async def job_complete(
     job.status = "done"
 
     # Persist speakers — idempotent via delete-then-insert
+    new_speakers: list[MeetingSpeaker] = []
     if body.speakers:
         await db.execute(
             delete(MeetingSpeaker).where(MeetingSpeaker.meeting_id == meeting.id)
         )
         for sp in body.speakers:
-            db.add(MeetingSpeaker(
+            ms = MeetingSpeaker(
                 meeting_id=meeting.id,
                 speaker_label=sp.label,
                 speaking_seconds=sp.speaking_seconds,
                 name_suggestions=sp.name_suggestions or None,
-            ))
+                embedding=sp.embedding,
+            )
+            db.add(ms)
+            new_speakers.append(ms)
+
+        # Voice matching against this user's existing voice profiles.
+        # Wrapped in try/except so a matching failure never blocks job completion.
+        try:
+            await _apply_voice_matching(db, meeting.user_id, meeting.id, new_speakers)
+        except Exception as e:
+            logger.warning("voice matching failed for meeting=%s: %s", meeting.id, e)
 
     # Total processing duration (queued → completed) for the metric
     if meeting.processing_started_at is not None:
@@ -488,6 +510,110 @@ async def job_complete(
 
     await db.commit()
     return {"ok": True, "duplicate": False}
+
+
+async def _apply_voice_matching(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    meeting_id: uuid.UUID,
+    new_speakers: list[MeetingSpeaker],
+) -> None:
+    """Voice match every new speaker against the user's voice profiles.
+    Auto-bind at >=AUTO_BIND_THRESHOLD (with dedup so one participant maps
+    to at most one speaker in this meeting). Append voice suggestions
+    (high/medium) to name_suggestions for non-auto-bound speakers."""
+    profiles = await load_user_profiles(db, user_id)
+    if not profiles:
+        return
+
+    # Compute matches once per speaker
+    matches_per_speaker: dict[str, list[tuple[uuid.UUID, str, float]]] = {}
+    for ms in new_speakers:
+        if ms.embedding is None:
+            continue
+        matches_per_speaker[ms.speaker_label] = match_speaker(ms.embedding, profiles)
+
+    # Dedup auto-bind: if multiple speakers want same participant, only the
+    # one with max similarity wins (tiebreak: max speaking_seconds).
+    ms_by_label = {ms.speaker_label: ms for ms in new_speakers}
+    candidates_per_pid: dict[uuid.UUID, list[tuple[str, float]]] = {}
+    for label, matches in matches_per_speaker.items():
+        if matches and matches[0][2] >= AUTO_BIND_THRESHOLD:
+            candidates_per_pid.setdefault(matches[0][0], []).append((label, matches[0][2]))
+
+    auto_bind_winners: dict[str, uuid.UUID] = {}   # speaker_label -> participant_id
+    auto_bind_losers: dict[str, uuid.UUID] = {}    # speaker_label -> participant_id (still suggestion)
+    for pid, contenders in candidates_per_pid.items():
+        sorted_contenders = sorted(
+            contenders,
+            key=lambda x: (x[1], ms_by_label[x[0]].speaking_seconds or 0),
+            reverse=True,
+        )
+        auto_bind_winners[sorted_contenders[0][0]] = pid
+        for label, _ in sorted_contenders[1:]:
+            auto_bind_losers[label] = pid
+
+    # Apply auto-binds + immediately update voice profiles (running mean)
+    for label, pid in auto_bind_winners.items():
+        ms = ms_by_label[label]
+        ms.participant_id = pid
+        sim = next(s for s in matches_per_speaker[label] if s[0] == pid)[2]
+        try:
+            await update_voice_profile(db, pid, ms.embedding)
+        except Exception as e:
+            logger.warning("voice_profile update failed for participant=%s: %s", pid, e)
+        logger.info(
+            "voice auto-bind: speaker=%s -> participant=%s sim=%.3f meeting=%s",
+            label, pid, sim, meeting_id,
+        )
+
+    # Build suggestions for speakers NOT auto-bound (auto-bound ones don't
+    # need suggestions — picker doesn't show them for bound speakers).
+    auto_bound_pids = set(auto_bind_winners.values())
+    for ms in new_speakers:
+        if ms.speaker_label in auto_bind_winners:
+            continue
+        matches = matches_per_speaker.get(ms.speaker_label, [])
+        if not matches:
+            continue
+
+        existing_suggestions = list(ms.name_suggestions or [])
+        voice_suggestions: list[dict] = []
+        for i, (pid, name, sim) in enumerate(matches):
+            # Top match was auto-bind candidate but lost dedup → demote
+            if i == 0 and sim >= AUTO_BIND_THRESHOLD and ms.speaker_label in auto_bind_losers:
+                sim = max(MEDIUM_SUGGESTION_THRESHOLD, sim - 0.05)
+            # Skip participants already auto-bound to another speaker (one person = one chip)
+            if pid in auto_bound_pids and auto_bind_losers.get(ms.speaker_label) != pid:
+                continue
+            if sim >= HIGH_SUGGESTION_THRESHOLD:
+                evidence_type = "voice_high"
+                evidence_label = "🎯 совпадение голоса (high)"
+            elif sim >= MEDIUM_SUGGESTION_THRESHOLD:
+                evidence_type = "voice_medium"
+                evidence_label = "🎯 совпадение голоса (medium)"
+            else:
+                continue  # below threshold, skip rest (sorted DESC)
+            voice_suggestions.append({
+                "name": name,
+                "confidence": round(sim, 3),
+                "evidence": evidence_label,
+                "evidence_type": evidence_type,
+                "participant_id": str(pid),
+            })
+
+        # Limit to top-3 voice matches to avoid noise
+        voice_suggestions = voice_suggestions[:3]
+
+        # Dedup with LLM by name (voice is more reliable)
+        voice_names = {v["name"].lower() for v in voice_suggestions}
+        existing_filtered = [
+            s for s in existing_suggestions
+            if str(s.get("name", "")).lower() not in voice_names
+        ]
+        combined = voice_suggestions + existing_filtered
+        combined.sort(key=lambda s: s.get("confidence", 0), reverse=True)
+        ms.name_suggestions = combined or None
 
 
 @router.post("/jobs/{job_id}/fail", dependencies=[Depends(verify_api_key)])

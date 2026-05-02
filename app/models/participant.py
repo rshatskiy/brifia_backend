@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import String, Integer, DateTime, Text, ForeignKey, CheckConstraint, UniqueConstraint
+from sqlalchemy import String, Integer, DateTime, Text, ForeignKey, CheckConstraint, UniqueConstraint, REAL
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.dialects.postgresql import UUID, JSONB, ARRAY
 from app.database import Base
 
 
@@ -52,9 +52,30 @@ class MeetingSpeaker(Base):
     )
     speaking_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     name_suggestions: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # 128-dim L2-normed wespeaker centroid from pyannote community-1.
+    # Nullable: pyannote may soft-fail or short fragments (SPEAKER_UNKNOWN)
+    # may not have meaningful embeddings.
+    embedding: Mapped[list[float] | None] = mapped_column(ARRAY(REAL), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
     __table_args__ = (
         UniqueConstraint("meeting_id", "speaker_label", name="uq_meeting_speakers_label"),
+    )
+
+
+class ParticipantVoiceProfile(Base):
+    """Aggregated voice embedding per participant. Updated via running mean
+    on every successful speaker→participant binding (manual or auto)."""
+    __tablename__ = "participant_voice_profile"
+
+    participant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("participants.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    embedding: Mapped[list[float]] = mapped_column(ARRAY(REAL), nullable=False)
+    samples_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow
     )

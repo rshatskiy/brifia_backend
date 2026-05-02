@@ -29,6 +29,10 @@ class SpeakerOut(BaseModel):
     speaking_seconds: int | None = None
     name_suggestions: list[dict] = Field(default_factory=list)
     # name_suggestions: [{"name": str, "confidence": float, "evidence": str}]
+    # 128-dim L2-normed wespeaker centroid from pyannote community-1; null
+    # when pyannote soft-failed (graceful degradation) or for SPEAKER_UNKNOWN
+    # with too little speech.
+    embedding: list[float] | None = None
 
 
 class JobComplete(BaseModel):

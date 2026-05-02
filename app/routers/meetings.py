@@ -350,6 +350,22 @@ async def bind_meeting_speaker(
             meeting_id, speaker_label,
         )
 
+    # Update voice profile via running mean. Wrapped in try/except so
+    # failure here doesn't break the bind. Uses a fresh transaction since
+    # the bind itself is already committed.
+    if body.participant_id is not None and sp.embedding is not None:
+        try:
+            from app.services.voice_profile import update_voice_profile
+            await update_voice_profile(db, body.participant_id, sp.embedding)
+            await db.commit()
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(
+                "voice_profile update failed on bind meeting=%s label=%s participant=%s: %s",
+                meeting_id, speaker_label, body.participant_id, e,
+            )
+            await db.rollback()
+
     await ws_manager.notify_user(str(user.id), "meeting.speakers_updated", {
         "meeting_id": str(meeting_id),
         "speaker_label": speaker_label,
