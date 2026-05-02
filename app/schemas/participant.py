@@ -55,6 +55,19 @@ class MeetingSpeakerOut(BaseModel):
     participant: ParticipantOut | None = None
     speaking_seconds: int | None = None
     name_suggestions: list[dict] = Field(default_factory=list)
+    # 256-dim L2-normed wespeaker centroid for on-device voice matching.
+    # Server holds it transiently — clients are expected to download and
+    # store it locally, then call /meetings/{id}/embeddings/consumed to ACK.
+    # null when consumed, not yet generated, or for SPEAKER_UNKNOWN
+    # fragments too short to embed.
+    embedding: list[float] | None = None
+
+
+class EmbeddingsConsumedRequest(BaseModel):
+    """Body for POST /meetings/{id}/embeddings/consumed.
+    Client signals it has stored the embeddings of these speakers locally;
+    server clears them from meeting_speakers.embedding."""
+    speaker_labels: list[str] = Field(..., min_length=1)
 
 
 class MeetingSpeakerBind(BaseModel):

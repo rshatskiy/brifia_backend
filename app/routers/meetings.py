@@ -1,7 +1,8 @@
 import uuid
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, delete
+from sqlalchemy import select, func, delete, update as sa_update
 from app.database import get_db
 from app.models.user import User
 from app.models.meeting import Meeting
@@ -13,7 +14,9 @@ from app.schemas.meeting import (
     MeetingDetail, MeetingTranscriptResponse, MeetingStatusResponse,
     MeetingCountsResponse,
 )
-from app.schemas.participant import MeetingSpeakerOut, MeetingSpeakerBind, ParticipantOut
+from app.schemas.participant import (
+    MeetingSpeakerOut, MeetingSpeakerBind, ParticipantOut, EmbeddingsConsumedRequest,
+)
 from app.websocket_manager import ws_manager
 
 router = APIRouter(prefix="/api/v1/meetings", tags=["meetings"])
@@ -278,14 +281,49 @@ async def list_meeting_speakers(
     )
     out = []
     for sp, p in rows.all():
+        # Embedding is included only if not yet consumed (client hasn't
+        # stored it on device). Once consumed, it stays cleared — server
+        # never re-derives because the client owns the canonical copy.
+        emb = sp.embedding if sp.embedding_consumed_at is None else None
         item = MeetingSpeakerOut(
             speaker_label=sp.speaker_label,
             participant=ParticipantOut.model_validate(p) if p is not None else None,
             speaking_seconds=sp.speaking_seconds,
             name_suggestions=sp.name_suggestions or [],
+            embedding=emb,
         )
         out.append(item)
     return out
+
+
+@router.post("/{meeting_id}/embeddings/consumed", status_code=204)
+async def mark_embeddings_consumed(
+    meeting_id: uuid.UUID,
+    body: EmbeddingsConsumedRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Client confirms it has stored these speaker embeddings into its
+    local encrypted DB. Server clears the embedding column so it no longer
+    holds biometric data — the canonical store is now on device."""
+    # Authz check
+    meeting_q = await db.execute(
+        select(Meeting).where(Meeting.id == meeting_id, Meeting.user_id == user.id)
+    )
+    if meeting_q.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+
+    now = datetime.now(timezone.utc)
+    await db.execute(
+        sa_update(MeetingSpeaker)
+        .where(
+            MeetingSpeaker.meeting_id == meeting_id,
+            MeetingSpeaker.speaker_label.in_(body.speaker_labels),
+        )
+        .values(embedding=None, embedding_consumed_at=now)
+    )
+    await db.commit()
+    return None
 
 
 @router.put("/{meeting_id}/speakers/{speaker_label}", response_model=MeetingSpeakerOut)
@@ -350,23 +388,10 @@ async def bind_meeting_speaker(
             meeting_id, speaker_label,
         )
 
-    # Update voice profile via running mean. Disabled by default — see
-    # config.voice_profiles_server_matching. On-device storage is the new
-    # canonical location for voice profiles (Phase 2).
-    if body.participant_id is not None and sp.embedding is not None:
-        from app.config import get_settings
-        if get_settings().voice_profiles_server_matching:
-            try:
-                from app.services.voice_profile import update_voice_profile
-                await update_voice_profile(db, body.participant_id, sp.embedding)
-                await db.commit()
-            except Exception as e:
-                import logging
-                logging.getLogger(__name__).warning(
-                    "voice_profile update failed on bind meeting=%s label=%s participant=%s: %s",
-                    meeting_id, speaker_label, body.participant_id, e,
-                )
-                await db.rollback()
+    # Voice profile update removed from server — moved on-device per legal
+    # review (152-FZ biometrics). Client maintains its own encrypted SQLite
+    # of voice profiles and updates them on every bind. Server only ships
+    # the embedding to the client via /meetings/{id}/speakers (transient).
 
     await ws_manager.notify_user(str(user.id), "meeting.speakers_updated", {
         "meeting_id": str(meeting_id),

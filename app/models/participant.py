@@ -52,10 +52,16 @@ class MeetingSpeaker(Base):
     )
     speaking_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     name_suggestions: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    # 128-dim L2-normed wespeaker centroid from pyannote community-1.
-    # Nullable: pyannote may soft-fail or short fragments (SPEAKER_UNKNOWN)
-    # may not have meaningful embeddings.
+    # 256-dim L2-normed wespeaker centroid from pyannote community-1.
+    # TRANSIENT delivery channel: server holds it only until the client has
+    # downloaded it (or 24h elapses). Per 152-FZ biometric review, the
+    # canonical store of voice fingerprints lives on user device.
     embedding: Mapped[list[float] | None] = mapped_column(ARRAY(REAL), nullable=True)
+    # Set when the client ACK'd it has saved the embedding into its local
+    # encrypted SQLite. Cron also prunes embeddings >24h old regardless.
+    embedding_consumed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -64,18 +70,5 @@ class MeetingSpeaker(Base):
     )
 
 
-class ParticipantVoiceProfile(Base):
-    """Aggregated voice embedding per participant. Updated via running mean
-    on every successful speaker→participant binding (manual or auto)."""
-    __tablename__ = "participant_voice_profile"
-
-    participant_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("participants.id", ondelete="CASCADE"),
-        primary_key=True,
-    )
-    embedding: Mapped[list[float]] = mapped_column(ARRAY(REAL), nullable=False)
-    samples_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow
-    )
+# ParticipantVoiceProfile removed — server no longer stores aggregated voice
+# profiles. See migration 20260502_0002 and config.voice_profiles_server_matching.

@@ -6,11 +6,12 @@ are idempotent so accidental double-execution is safe.
 """
 import logging
 from datetime import datetime, timedelta, timezone
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update as sa_update
 from app.database import async_session
 from app.metrics import processing_jobs_pending
 from app.models.processing_job import ProcessingJob
 from app.models.meeting import Meeting
+from app.models.participant import MeetingSpeaker
 from app.constants.meeting_status import MeetingStatus, IN_FLIGHT_STATUSES
 from app.routers.internal import _set_meeting_status
 
@@ -18,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 HEARTBEAT_TIMEOUT_MINUTES = 5
 ORPHAN_TIMEOUT_HOURS = 2
+EMBEDDING_RETENTION_HOURS = 24
 
 
 async def revive_stalled_jobs() -> int:
@@ -113,6 +115,30 @@ async def update_queue_gauges() -> None:
         # Don't re-raise — gauge update is best-effort, shouldn't kill scheduler
 
 
+async def expire_speaker_embeddings() -> None:
+    """Delete voice embeddings >24h old whether or not the client consumed
+    them. Defense in depth for 152-FZ biometric data minimization: even if
+    a client never came back to ACK consumption, we don't keep biometrics
+    around forever."""
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=EMBEDDING_RETENTION_HOURS)
+    try:
+        async with async_session() as db:
+            result = await db.execute(
+                sa_update(MeetingSpeaker)
+                .where(
+                    MeetingSpeaker.embedding.isnot(None),
+                    MeetingSpeaker.created_at < cutoff,
+                )
+                .values(embedding=None)
+            )
+            await db.commit()
+            cleared = result.rowcount or 0
+            if cleared:
+                logger.info("expired %d speaker embeddings (>%dh old)", cleared, EMBEDDING_RETENTION_HOURS)
+    except Exception:
+        logger.exception("stalekeeper: expire_speaker_embeddings failed")
+
+
 def attach_to_app(app):
     """Register stalekeeper jobs into FastAPI lifespan via APScheduler.
 
@@ -125,6 +151,7 @@ def attach_to_app(app):
     scheduler.add_job(revive_stalled_jobs, "interval", minutes=1, id="revive_stalled_jobs")
     scheduler.add_job(expire_orphan_meetings, "interval", hours=1, id="expire_orphan_meetings")
     scheduler.add_job(update_queue_gauges, "interval", seconds=15, id="update_queue_gauges")
+    scheduler.add_job(expire_speaker_embeddings, "interval", hours=1, id="expire_speaker_embeddings")
     try:
         scheduler.start()
         app.state.stalekeeper_scheduler = scheduler
