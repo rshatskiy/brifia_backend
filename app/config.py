@@ -31,6 +31,16 @@ class Settings(BaseSettings):
     bitrix_client_secret: str = ""
     bitrix_redirect_base: str = "https://api2.brifia.ru"
 
+    # Voice profile matching — when False, server does NOT compute speaker
+    # similarity, does NOT store aggregated voice profiles, and does NOT
+    # auto-bind based on voice. Embeddings still flow through to clients
+    # via meeting_speakers.embedding for on-device matching (Phase 2).
+    # Default False per legal team review (152-FZ biometrics): server-side
+    # storage of voice fingerprints requires explicit consent + biometric
+    # data policy + RKN notification, which we route around by moving
+    # storage to user device.
+    voice_profiles_server_matching: bool = False
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 

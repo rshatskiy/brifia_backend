@@ -540,11 +540,15 @@ async def job_complete(
                 new_speakers.append(ms)
 
         # Voice matching against this user's existing voice profiles.
-        # Wrapped in try/except so a matching failure never blocks job completion.
-        try:
-            await _apply_voice_matching(db, meeting.user_id, meeting.id, new_speakers)
-        except Exception as e:
-            logger.warning("voice matching failed for meeting=%s: %s", meeting.id, e)
+        # Disabled by default — see config.voice_profiles_server_matching:
+        # storage of biometric fingerprints (voice embeddings) on the server
+        # requires 152-FZ biometric consent flow that we don't have. Phase 2
+        # moves matching to client device with on-device encrypted SQLite.
+        if get_settings().voice_profiles_server_matching:
+            try:
+                await _apply_voice_matching(db, meeting.user_id, meeting.id, new_speakers)
+            except Exception as e:
+                logger.warning("voice matching failed for meeting=%s: %s", meeting.id, e)
 
     # Total processing duration (queued → completed) for the metric
     if meeting.processing_started_at is not None:
