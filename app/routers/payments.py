@@ -112,7 +112,7 @@ async def yookassa_webhook(request: Request, db: AsyncSession = Depends(get_db))
             existing = await db.execute(
                 select(PaymentMethod).where(PaymentMethod.user_id == user_uuid)
             )
-            pm = existing.scalar_one_or_none()
+            pm = existing.scalars().first()
             if pm:
                 pm.payment_method_id = pm_id
                 pm.last_used_at = datetime.now(timezone.utc)
