@@ -479,22 +479,65 @@ async def job_complete(
 
     job.status = "done"
 
-    # Persist speakers — idempotent via delete-then-insert
+    # Persist speakers — UPSERT by (meeting_id, speaker_label).
+    # Preserves participant_id from prior runs so re-analysis doesn't wipe
+    # manual bindings. Defensive: if the embedding for an existing label
+    # diverges from the new one (cosine < SAME_VOICE_THRESHOLD), pyannote
+    # likely re-clustered the audio and the label now points to a different
+    # person — drop the stale binding so it can re-match.
     new_speakers: list[MeetingSpeaker] = []
     if body.speakers:
-        await db.execute(
-            delete(MeetingSpeaker).where(MeetingSpeaker.meeting_id == meeting.id)
+        existing_q = await db.execute(
+            select(MeetingSpeaker).where(MeetingSpeaker.meeting_id == meeting.id)
         )
+        existing_by_label = {ms.speaker_label: ms for ms in existing_q.scalars()}
+        new_labels = {sp.label for sp in body.speakers}
+
+        # Drop orphan labels (existed before, no longer in this analysis)
+        for label, ms in existing_by_label.items():
+            if label not in new_labels:
+                await db.delete(ms)
+                logger.info(
+                    "re-analysis: dropped orphan speaker label=%s meeting=%s (had participant=%s)",
+                    label, meeting.id, ms.participant_id,
+                )
+
+        # Upsert each speaker from payload
+        SAME_VOICE_THRESHOLD = 0.85
         for sp in body.speakers:
-            ms = MeetingSpeaker(
-                meeting_id=meeting.id,
-                speaker_label=sp.label,
-                speaking_seconds=sp.speaking_seconds,
-                name_suggestions=sp.name_suggestions or None,
-                embedding=sp.embedding,
-            )
-            db.add(ms)
-            new_speakers.append(ms)
+            existing = existing_by_label.get(sp.label)
+            if existing is not None:
+                # Verify same person via embedding similarity if both sides have it
+                if (existing.participant_id is not None
+                        and existing.embedding is not None
+                        and sp.embedding is not None):
+                    try:
+                        import numpy as np
+                        old_emb = np.asarray(existing.embedding, dtype=np.float32)
+                        new_emb = np.asarray(sp.embedding, dtype=np.float32)
+                        sim = float(np.dot(old_emb, new_emb))
+                        if sim < SAME_VOICE_THRESHOLD:
+                            logger.info(
+                                "re-analysis: speaker label=%s voice diverged (sim=%.3f), dropping binding to participant=%s",
+                                sp.label, sim, existing.participant_id,
+                            )
+                            existing.participant_id = None
+                    except Exception as e:
+                        logger.warning("voice consistency check failed for %s: %s", sp.label, e)
+                existing.speaking_seconds = sp.speaking_seconds
+                existing.name_suggestions = sp.name_suggestions or None
+                existing.embedding = sp.embedding
+                new_speakers.append(existing)
+            else:
+                ms = MeetingSpeaker(
+                    meeting_id=meeting.id,
+                    speaker_label=sp.label,
+                    speaking_seconds=sp.speaking_seconds,
+                    name_suggestions=sp.name_suggestions or None,
+                    embedding=sp.embedding,
+                )
+                db.add(ms)
+                new_speakers.append(ms)
 
         # Voice matching against this user's existing voice profiles.
         # Wrapped in try/except so a matching failure never blocks job completion.
@@ -526,20 +569,35 @@ async def _apply_voice_matching(
     if not profiles:
         return
 
-    # Compute matches once per speaker
+    # Only consider speakers without an existing binding. Manual bindings
+    # (or auto-bindings from a previous analysis run) are authoritative —
+    # voice matching never overrides them.
+    unbound_speakers = [ms for ms in new_speakers if ms.participant_id is None]
+    if not unbound_speakers:
+        return
+
+    # Compute matches once per unbound speaker
     matches_per_speaker: dict[str, list[tuple[uuid.UUID, str, float]]] = {}
-    for ms in new_speakers:
+    for ms in unbound_speakers:
         if ms.embedding is None:
             continue
         matches_per_speaker[ms.speaker_label] = match_speaker(ms.embedding, profiles)
 
     # Dedup auto-bind: if multiple speakers want same participant, only the
     # one with max similarity wins (tiebreak: max speaking_seconds).
-    ms_by_label = {ms.speaker_label: ms for ms in new_speakers}
+    ms_by_label = {ms.speaker_label: ms for ms in unbound_speakers}
+
+    # Also exclude participants already bound to other speakers in this meeting
+    # (prevents auto-bind to someone manually bound to a different label)
+    already_bound_pids = {
+        ms.participant_id for ms in new_speakers if ms.participant_id is not None
+    }
     candidates_per_pid: dict[uuid.UUID, list[tuple[str, float]]] = {}
     for label, matches in matches_per_speaker.items():
-        if matches and matches[0][2] >= AUTO_BIND_THRESHOLD:
-            candidates_per_pid.setdefault(matches[0][0], []).append((label, matches[0][2]))
+        # Skip top match if that participant is already bound to another speaker
+        top = next((m for m in matches if m[0] not in already_bound_pids), None)
+        if top is not None and top[2] >= AUTO_BIND_THRESHOLD:
+            candidates_per_pid.setdefault(top[0], []).append((label, top[2]))
 
     auto_bind_winners: dict[str, uuid.UUID] = {}   # speaker_label -> participant_id
     auto_bind_losers: dict[str, uuid.UUID] = {}    # speaker_label -> participant_id (still suggestion)
@@ -567,10 +625,10 @@ async def _apply_voice_matching(
             label, pid, sim, meeting_id,
         )
 
-    # Build suggestions for speakers NOT auto-bound (auto-bound ones don't
-    # need suggestions — picker doesn't show them for bound speakers).
-    auto_bound_pids = set(auto_bind_winners.values())
-    for ms in new_speakers:
+    # Build suggestions for unbound speakers NOT auto-bound (auto-bound ones
+    # don't need suggestions — picker doesn't show them for bound speakers).
+    auto_bound_pids = set(auto_bind_winners.values()) | already_bound_pids
+    for ms in unbound_speakers:
         if ms.speaker_label in auto_bind_winners:
             continue
         matches = matches_per_speaker.get(ms.speaker_label, [])
@@ -583,7 +641,7 @@ async def _apply_voice_matching(
             # Top match was auto-bind candidate but lost dedup → demote
             if i == 0 and sim >= AUTO_BIND_THRESHOLD and ms.speaker_label in auto_bind_losers:
                 sim = max(MEDIUM_SUGGESTION_THRESHOLD, sim - 0.05)
-            # Skip participants already auto-bound to another speaker (one person = one chip)
+            # Skip participants already bound to another speaker (one person = one chip)
             if pid in auto_bound_pids and auto_bind_losers.get(ms.speaker_label) != pid:
                 continue
             if sim >= HIGH_SUGGESTION_THRESHOLD:
