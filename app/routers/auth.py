@@ -2,11 +2,12 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, func
 import httpx
 from app.database import get_db
 from app.models.user import User, RefreshToken
 from app.models.profile import Profile
+from app.models.plan import Plan
 from app.auth import (
     hash_password, verify_password, hash_token,
     create_access_token, create_refresh_token,
@@ -21,10 +22,27 @@ from app.config import get_settings
 from fastapi.security import HTTPAuthorizationCredentials
 import secrets
 from fastapi import Request
-from sqlalchemy import func
 from app.models.web_session_token import WebSessionToken
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+async def _default_free_plan_id(db: AsyncSession) -> uuid.UUID | None:
+    """Resolve the active "Бесплатный" plan id used as default for new users.
+
+    The rest of the codebase relies on every profile having current_plan_id
+    populated — internal.py charging logic, profiles.py response, the mobile
+    UI's quota math. New profiles previously left this column NULL, which
+    surfaced to the user as "0 of 0 minutes" on the account screen.
+    """
+    result = await db.execute(
+        select(Plan.id)
+        .where(func.lower(Plan.name).like("%бесплат%"))
+        .where(Plan.active.is_(True))
+        .order_by(Plan.price_rub.asc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
 
 
 async def _issue_tokens(user: User, db: AsyncSession) -> TokenResponse:
@@ -57,7 +75,11 @@ async def register(req: RegisterRequest, db: AsyncSession = Depends(get_db)):
     db.add(user)
     await db.flush()
 
-    profile = Profile(user_id=user.id, full_name=req.full_name)
+    profile = Profile(
+        user_id=user.id,
+        full_name=req.full_name,
+        current_plan_id=await _default_free_plan_id(db),
+    )
     db.add(profile)
     await db.commit()
 
@@ -183,7 +205,11 @@ async def oauth_login(req: OAuthRequest, db: AsyncSession = Depends(get_db)):
         )
         db.add(user)
         await db.flush()
-        profile = Profile(user_id=user.id, full_name=full_name)
+        profile = Profile(
+            user_id=user.id,
+            full_name=full_name,
+            current_plan_id=await _default_free_plan_id(db),
+        )
         db.add(profile)
         await db.commit()
 
