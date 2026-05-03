@@ -518,7 +518,19 @@ async def job_complete(
                         logger.warning("voice consistency check failed for %s: %s", sp.label, e)
                 existing.speaking_seconds = sp.speaking_seconds
                 existing.name_suggestions = sp.name_suggestions or None
-                existing.embedding = sp.embedding
+                # Fresh embedding from re-analysis = new delivery cycle:
+                # reset consumed_at so the client picks up the new value.
+                # Without this, GET /speakers would keep returning null
+                # because the column has been "consumed" in a previous run.
+                if sp.embedding is not None:
+                    existing.embedding = sp.embedding
+                    existing.embedding_consumed_at = None
+                else:
+                    # Worker explicitly says no embedding for this speaker
+                    # (e.g., pyannote soft-fail or SPEAKER_UNKNOWN with too
+                    # little speech) — clear both fields.
+                    existing.embedding = None
+                    existing.embedding_consumed_at = None
                 new_speakers.append(existing)
             else:
                 ms = MeetingSpeaker(
