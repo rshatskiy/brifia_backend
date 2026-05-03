@@ -636,6 +636,35 @@ async def job_fail(
     return {"ok": True, "duplicate": False, "retried": job.status == "pending"}
 
 
+def _parse_possibly_double_encoded_tasks(raw: str | None) -> list | None:
+    """Tolerates two storage shapes for meetings.tasks_json:
+
+    - Single-encoded (worker path): the column holds raw `[{...}, ...]`
+    - Double-encoded (legacy mobile path): the column holds a JSON string
+      whose value is `[{...}, ...]` — i.e., the array was JSON-stringified
+      twice. Mobile updateMeetingTasks() shipped already-encoded JSON in
+      the PUT body, which then got encoded again as a request field.
+
+    Returns the decoded list or None if the data is unrecoverable.
+    Used by both /jobs/complete fanout and the one-shot re-backfill.
+    """
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    # Double-encoded fallback
+    if isinstance(parsed, str):
+        try:
+            parsed = json.loads(parsed)
+        except json.JSONDecodeError:
+            return None
+    if not isinstance(parsed, list):
+        return None
+    return parsed
+
+
 async def _sync_meeting_tasks_from_payload(
     db: AsyncSession,
     meeting_id: uuid.UUID,
@@ -662,11 +691,8 @@ async def _sync_meeting_tasks_from_payload(
         )
         return
 
-    try:
-        parsed = json.loads(tasks_json)
-    except json.JSONDecodeError:
-        return
-    if not isinstance(parsed, list):
+    parsed = _parse_possibly_double_encoded_tasks(tasks_json)
+    if parsed is None:
         return
 
     # Load existing rows for this meeting, indexed by title
