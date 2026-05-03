@@ -4,6 +4,7 @@ Authenticated via shared API key (FASTER_WHISPER_API_KEY),
 not user JWT tokens.
 """
 
+import json
 import uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Header
@@ -19,6 +20,7 @@ from app.schemas.meeting import MeetingUpdate, MeetingStatusResponse, MeetingCre
 from app.constants.meeting_status import MeetingStatus, IN_FLIGHT_STATUSES, TERMINAL_STATUSES
 from app.models.processing_job import ProcessingJob
 from app.models.participant import MeetingSpeaker
+from app.models.meeting_task import MeetingTask
 import logging
 
 logger = logging.getLogger(__name__)
@@ -471,6 +473,21 @@ async def job_complete(
 
     job.status = "done"
 
+    # Fan tasks_json out into the meeting_tasks relational table so the
+    # living-tasks API (status, due_date, assignee, dashboard filters) has
+    # rows to operate on. tasks_json itself is kept as-is for backward
+    # compatibility — the table is the new source of truth.
+    #
+    # Re-analysis case: preserve user mutations (status/due_date/assignee/
+    # bitrix_task_id) for tasks whose title still matches the new payload.
+    # Brand-new tasks from this run are inserted; tasks that disappeared
+    # from the new payload are deleted (LLM dropped them, user can re-add
+    # manually if they were valuable).
+    try:
+        await _sync_meeting_tasks_from_payload(db, meeting.id, body.tasks_json)
+    except Exception as e:
+        logger.warning("meeting_tasks fanout failed for meeting=%s: %s", meeting.id, e)
+
     # Persist speakers — UPSERT by (meeting_id, speaker_label).
     # Preserves participant_id from prior runs so re-analysis doesn't wipe
     # manual bindings. Defensive: if the embedding for an existing label
@@ -617,3 +634,72 @@ async def job_fail(
 
     await db.commit()
     return {"ok": True, "duplicate": False, "retried": job.status == "pending"}
+
+
+async def _sync_meeting_tasks_from_payload(
+    db: AsyncSession,
+    meeting_id: uuid.UUID,
+    tasks_json: str | None,
+) -> None:
+    """Reconcile meeting_tasks rows with the LLM-emitted tasks_json payload.
+
+    Re-analysis preservation strategy: tasks are matched to existing rows
+    by exact title (case-sensitive). For matched rows we keep the user's
+    mutations (status, due_date, assignee_participant_id, bitrix_task_id)
+    and just refresh description + position. New titles are inserted with
+    defaults. Rows whose title disappeared from the payload are deleted —
+    if the user had altered them they typically also renamed, so this is
+    a reasonable trade-off for MVP. Manually-created tasks (those that
+    don't match any payload title) are also dropped on re-analysis; this
+    is a known limitation tracked for v2.
+    """
+    if not tasks_json:
+        # Worker emitted no tasks (or analysis empty) — wipe relational
+        # rows too, otherwise stale rows linger after a re-analysis that
+        # produced fewer tasks
+        await db.execute(
+            delete(MeetingTask).where(MeetingTask.meeting_id == meeting_id)
+        )
+        return
+
+    try:
+        parsed = json.loads(tasks_json)
+    except json.JSONDecodeError:
+        return
+    if not isinstance(parsed, list):
+        return
+
+    # Load existing rows for this meeting, indexed by title
+    existing_q = await db.execute(
+        select(MeetingTask).where(MeetingTask.meeting_id == meeting_id)
+    )
+    existing_by_title: dict[str, MeetingTask] = {}
+    for row in existing_q.scalars():
+        existing_by_title[row.title] = row
+
+    seen_titles: set[str] = set()
+    for position, raw in enumerate(parsed):
+        if not isinstance(raw, dict):
+            continue
+        title = (raw.get("title") or "").strip()
+        if not title:
+            continue
+        seen_titles.add(title)
+        description = raw.get("description")
+        existing = existing_by_title.get(title)
+        if existing is not None:
+            # Keep user mutations; just refresh description + ordering
+            existing.description = description
+            existing.position = position
+        else:
+            db.add(MeetingTask(
+                meeting_id=meeting_id,
+                title=title[:1024],
+                description=description,
+                position=position,
+            ))
+
+    # Drop rows whose title didn't appear in the new payload
+    for title, row in existing_by_title.items():
+        if title not in seen_titles:
+            await db.delete(row)

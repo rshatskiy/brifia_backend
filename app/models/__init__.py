@@ -10,6 +10,7 @@ from app.models.web_session_token import WebSessionToken
 from app.models.processing_job import ProcessingJob
 from app.models.participant import Participant, ParticipantSeriesLink, MeetingSpeaker
 from app.models.bitrix_integration import BitrixIntegration
+from app.models.meeting_task import MeetingTask
 
 __all__ = [
     "User", "RefreshToken", "Profile", "Meeting",
@@ -17,4 +18,5 @@ __all__ = [
     "WebSessionToken", "ProcessingJob",
     "Participant", "ParticipantSeriesLink", "MeetingSpeaker",
     "BitrixIntegration",
+    "MeetingTask",
 ]
