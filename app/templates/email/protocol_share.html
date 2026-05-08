@@ -45,27 +45,29 @@
 </table>
 {% endif %}
 
-{# Attachment hint card — visually communicates the file is in the attachment, not inline #}
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 22px 0 8px; background-color: #FAF7FF; border: 1px solid #E8DFFB; border-radius: 12px;">
+{# Attachment notice — flat, non-card styling so recipients don't expect
+   a click target. Bottom arrow + explicit "во вложении ↓" wording
+   directs them to the mail-client's actual attachment row. #}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 22px 0 8px; border-top: 1px solid #ECE7F5; border-bottom: 1px solid #ECE7F5;">
   <tr>
-    <td style="padding: 16px 18px;">
+    <td style="padding: 14px 0;">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
         <tr>
-          <td valign="middle" width="48" style="padding-right: 14px;">
-            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="40" style="width: 40px; height: 40px; background-color: {% if format_label == 'PDF' %}#BE123C{% else %}#1F4FB6{% endif %}; border-radius: 9px;">
+          <td valign="middle" width="44" style="padding-right: 12px;">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="34" style="width: 34px; height: 34px; background-color: {% if format_label == 'PDF' %}#BE123C{% else %}#1F4FB6{% endif %}; border-radius: 7px;">
               <tr>
-                <td align="center" valign="middle" style="height: 40px; line-height: 40px; color: #FFFFFF; font-weight: 800; font-size: 11px; letter-spacing: 0.06em;">
+                <td align="center" valign="middle" style="height: 34px; line-height: 34px; color: #FFFFFF; font-weight: 800; font-size: 10px; letter-spacing: 0.06em;">
                   {{ format_label }}
                 </td>
               </tr>
             </table>
           </td>
           <td valign="middle">
-            <div style="font-size: 14px; font-weight: 600; color: #1A0B33; line-height: 1.35;">
-              {{ filename }}
+            <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #8C8499;">
+              📎 Прикреплено к письму
             </div>
-            <div style="font-size: 12px; color: #8C8499; margin-top: 2px;">
-              Открывается в {% if format_label == 'PDF' %}любом просмотрщике PDF{% else %}Microsoft Word, Pages или LibreOffice{% endif %}
+            <div style="font-size: 14px; font-weight: 600; color: #1A0B33; line-height: 1.35; margin-top: 3px;">
+              {{ filename }}
             </div>
           </td>
         </tr>
@@ -73,6 +75,11 @@
     </td>
   </tr>
 </table>
+
+<p style="margin: 10px 0 22px; font-size: 13px; line-height: 1.55; color: #6B6080;">
+  ↓ Скачайте файл из вложений вашего почтового клиента —
+  обычно они показываются под текстом письма или рядом с заголовком.
+</p>
 
 <p style="margin: 22px 0 6px; font-size: 13px; line-height: 1.6; color: #6B6080;">
   Хотите такой же протокол для своей встречи? Brifia записывает звонок,
