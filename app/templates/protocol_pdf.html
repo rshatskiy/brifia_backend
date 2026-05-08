@@ -220,15 +220,23 @@
   }
 
   /* ─────────── Topics ─────────── */
-  .topics { display: flex; flex-direction: column; gap: 3mm; }
+  /* `display: block`, NOT flex — WeasyPrint refuses to paginate inside a
+     flex container, which orphaned the section heading on its own page
+     while pushing every topic card to the next one. Margin replaces gap. */
+  .topics { display: block; }
   .topic {
     padding: 4mm 5mm;
     border: 1px solid rgba(15,10,40,0.08);
     border-radius: 3mm;
     background: #fff;
+    margin-bottom: 3mm;
     page-break-inside: avoid;
     break-inside: avoid;
   }
+  .topic:last-child { margin-bottom: 0; }
+  /* Keep first card glued to its h2 — strengthens the parent's
+     break-after rule across the wrapper boundary. */
+  .topics .topic:first-child { page-break-before: avoid; break-before: avoid; }
   .topic-head {
     display: flex; align-items: flex-start; gap: 9px;
   }
@@ -296,7 +304,7 @@
   }
   .tasks .tr {
     display: grid;
-    grid-template-columns: 22px 1fr 26mm 18mm;
+    grid-template-columns: 22px 1fr 32mm 18mm;
     gap: 10px;
     padding: 4mm 5mm;
     align-items: start;
