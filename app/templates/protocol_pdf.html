@@ -140,6 +140,10 @@
   }
 
   /* ─────────── Sections ─────────── */
+  /* h2 is a positioned block (NOT a flex container) — flex on a heading
+     in WeasyPrint randomly wraps the title even when there's plenty of
+     room. The accent bar and counter are absolutely positioned around
+     the text, so the heading text flows as a normal inline run. */
   .section { margin-bottom: 8mm; }
   .section h2 {
     font-size: 13pt;
@@ -147,26 +151,28 @@
     letter-spacing: -0.01em;
     margin: 0 0 4mm;
     color: #1A0B33;
-    display: flex; align-items: center; gap: 8px;
+    position: relative;
+    padding-left: 12px;
+    padding-right: 30px;
+    line-height: 1.25;
     page-break-after: avoid;
     break-after: avoid;
   }
   .section h2::before {
     content: "";
-    display: inline-block;
+    position: absolute;
+    left: 0; top: 5px;
     width: 4px; height: 17px;
     border-radius: 2px;
     background: #7C3AED;
   }
-  .section .h-counter {
-    margin-left: auto;
+  .section h2 .h-counter {
+    position: absolute;
+    right: 0; top: 4px;
     font-size: 9.5pt; font-weight: 500;
     color: rgba(26,11,51,0.5);
     font-variant-numeric: tabular-nums;
   }
-
-  /* Force the second logical part (decisions+tasks) onto a new page. */
-  .page-break { break-before: page; page-break-before: always; }
 
   /* ─────────── Summary ─────────── */
   .summary {
@@ -304,8 +310,8 @@
   }
   .tasks .tr {
     display: grid;
-    grid-template-columns: 22px 1fr 32mm 18mm;
-    gap: 10px;
+    grid-template-columns: 22px 1fr 30mm 16mm;
+    gap: 8px;
     padding: 4mm 5mm;
     align-items: start;
     font-size: 10.5pt;
@@ -459,8 +465,9 @@
   </div>
   {% endif %}
 
-  {# Force decisions + tasks onto a fresh page #}
-  {% if decisions or tasks %}<div class="page-break"></div>{% endif %}
+  {# No forced break — natural flow. break-inside: avoid on individual
+     cards keeps content from splitting awkwardly, and h2's break-after:
+     avoid keeps section headings glued to their first item. #}
 
   {% if decisions %}
   <div class="section">
