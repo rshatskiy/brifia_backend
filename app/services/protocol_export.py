@@ -239,6 +239,29 @@ def _initial(name: str) -> str:
     return parts[0][0].upper()
 
 
+def _disambiguated_initials(names: list[str]) -> list[str]:
+    """When two participants share a first letter (Артём + Алексей both
+    'А'), promote the colliding entries to two-letter initials so chips
+    stay distinguishable. Single first-letter is preserved when unique."""
+    one_letter = [_initial(n) for n in names]
+    counts: dict[str, int] = {}
+    for ch in one_letter:
+        counts[ch] = counts.get(ch, 0) + 1
+
+    out: list[str] = []
+    for name, ch in zip(names, one_letter):
+        if counts.get(ch, 0) > 1:
+            parts = [p for p in name.strip().split() if p]
+            first = parts[0] if parts else ""
+            if len(first) >= 2:
+                out.append(first[0].upper() + first[1].lower())
+            else:
+                out.append(ch)
+        else:
+            out.append(ch)
+    return out
+
+
 def _doc_id(meeting_id: uuid.UUID, created_at: datetime) -> str:
     suffix = meeting_id.hex[:3].upper()
     return f"BRF-{created_at.year}-{created_at.month:02d}{created_at.day:02d}-{suffix}"
@@ -251,12 +274,18 @@ async def _build_context(
     task_rows = await _load_tasks(db, meeting.id)
     author = await _load_author(db, meeting.user_id)
 
-    # SPEAKER_N → display name
+    # SPEAKER_N → display name. Bound speakers resolve to participant
+    # names; unbound speakers all collapse to a single neutral label so
+    # readers don't accidentally trust the technical SPEAKER_N numbering
+    # (which doesn't always correspond to identifiable people).
     label_to_name: dict[str, str] = {}
     participants: list[dict] = []
     seen_pids: set[uuid.UUID] = set()
+    bound_speaker_count = 0
+    unbound_speaker_count = 0
     for idx, (sp, p) in enumerate(speaker_rows):
         if p is not None:
+            bound_speaker_count += 1
             label_to_name[sp.speaker_label] = p.name
             if p.id not in seen_pids:
                 seen_pids.add(p.id)
@@ -264,15 +293,18 @@ async def _build_context(
                     "name": p.name,
                     "role": (p.role or "").strip() or None,
                     "color": _AVATAR_COLORS[len(participants) % len(_AVATAR_COLORS)],
-                    "initial": _initial(p.name),
+                    "initial": "",  # backfilled after the loop with collision-aware logic
                 })
         else:
-            # Unbound speaker — show as "Спикер N" placeholder
-            try:
-                n = int(sp.speaker_label.split("_")[-1])
-            except ValueError:
-                n = idx
-            label_to_name[sp.speaker_label] = f"Спикер {n + 1}"
+            unbound_speaker_count += 1
+            label_to_name[sp.speaker_label] = "Не идентифицирован"
+
+    # Disambiguate avatar initials for participants sharing a first letter
+    # (Артём + Алексей both 'А' → 'Ар' + 'Ал' so chips don't read identically).
+    if participants:
+        initials = _disambiguated_initials([p["name"] for p in participants])
+        for p, init in zip(participants, initials):
+            p["initial"] = init
 
     md = (meeting.protocol or "")
     md_resolved = _resolve_tokens(md, label_to_name)
@@ -285,7 +317,6 @@ async def _build_context(
                 return sections[n]
         return ""
 
-    summary = _section("резюме", "summary", "сводка", "краткое содержание")
     topics_md = _section("темы", "ключевые темы", "topics")
     decisions_md = _section("решения", "принятые решения", "decisions")
 
@@ -302,9 +333,33 @@ async def _build_context(
             "description": _resolve_tokens(t.description or "", label_to_name) or None,
             "owner": owner.name if owner is not None else None,
             "due": _ru_short_date(t.due_date) if t.due_date else None,
+            "priority": t.priority,  # 'high' | 'medium' | 'low' | None
         })
 
+    # Whole-column emptiness flags: drives template-side column hiding so
+    # we don't waste 30% of table width showing a column of "—".
+    tasks_have_owners = any(t["owner"] for t in tasks)
+    tasks_have_dues = any(t["due"] for t in tasks)
+    tasks_have_priority = any(t["priority"] for t in tasks)
+
+    # Use the LLM's structured summary first; fall back to a "Резюме"
+    # section parsed out of the protocol markdown for legacy meetings
+    # that pre-date the field.
+    summary_text = (meeting.summary or "").strip() or _section(
+        "резюме", "summary", "сводка", "краткое содержание"
+    )
+
     has_page_2 = bool(tasks or decisions or author)
+
+    # Participants_count label honours the "X из Y identified" reality
+    # so readers don't think 3 chips = 3 speakers when audio actually had 5.
+    speakers_total = bound_speaker_count + unbound_speaker_count
+    if unbound_speaker_count and speakers_total > bound_speaker_count:
+        participants_label = f"{bound_speaker_count} из {speakers_total}"
+    else:
+        participants_label = (
+            f"{speakers_total} {'спикер' if speakers_total == 1 else 'спикеров'}"
+        )
 
     return {
         "doc_id": _doc_id(meeting.id, meeting.created_at),
@@ -314,14 +369,17 @@ async def _build_context(
         "meta": {
             "date": _ru_meeting_date(meeting.created_at),
             "duration": _ru_duration(meeting.duration_seconds),
-            "participants_count": f"{len(participants)} {'спикер' if len(participants) == 1 else 'спикеров'}",
+            "participants_count": participants_label,
             "tasks_count": str(len(tasks)),
         },
         "participants": participants,
-        "summary": summary or None,
+        "summary": summary_text or None,
         "topics": topics,
         "decisions": decisions,
         "tasks": tasks,
+        "tasks_have_owners": tasks_have_owners,
+        "tasks_have_dues": tasks_have_dues,
+        "tasks_have_priority": tasks_have_priority,
         "author": {
             "name": author.name,
             "position": author.position,

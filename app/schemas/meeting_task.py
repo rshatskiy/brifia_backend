@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, ConfigDict
 
 
 TaskStatus = Literal["open", "done", "cancelled"]
+TaskPriority = Literal["high", "medium", "low"]
 
 
 class TaskOut(BaseModel):
@@ -17,6 +18,7 @@ class TaskOut(BaseModel):
     title: str
     description: str | None = None
     status: TaskStatus
+    priority: TaskPriority | None = None
     due_date: datetime | None = None
     assignee_participant_id: uuid.UUID | None = None
     bitrix_task_id: str | None = None
@@ -31,6 +33,7 @@ class TaskCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=1024)
     description: str | None = None
     status: TaskStatus = "open"
+    priority: TaskPriority | None = None
     due_date: datetime | None = None
     assignee_participant_id: uuid.UUID | None = None
 
@@ -42,6 +45,7 @@ class TaskUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=1024)
     description: str | None = None
     status: TaskStatus | None = None
+    priority: TaskPriority | None = None
     due_date: datetime | None = None
     assignee_participant_id: uuid.UUID | None = None
     # Set when the client successfully exports to Bitrix24 — stored so

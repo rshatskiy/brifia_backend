@@ -301,6 +301,9 @@
   }
 
   /* ─────────── Tasks table ─────────── */
+  /* grid-template-columns is set inline per-row by the template — empty
+     columns (no owners across all tasks, no dues, no priority) are
+     dropped entirely so the visible columns get the freed width. */
   .tasks {
     border-radius: 3mm;
     overflow: hidden;
@@ -308,7 +311,6 @@
   }
   .tasks .tr {
     display: grid;
-    grid-template-columns: 22px 1fr 32mm 16mm;
     gap: 10px;
     padding: 4mm 5mm;
     align-items: start;
@@ -337,13 +339,29 @@
   }
   .tasks .col-due  { font-variant-numeric: tabular-nums; color: rgba(26,11,51,0.75); padding-top: 2px; }
   .tasks .col-owner { color: rgba(26,11,51,0.78); padding-top: 2px; font-weight: 500; }
+  .tasks .col-priority { padding-top: 1px; }
+
+  /* Priority pills — colour-coded urgency badges */
+  .pri {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 8.5pt;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    line-height: 1.4;
+  }
+  .pri.high   { background: #FEE2E2; color: #BE123C; }
+  .pri.medium { background: #FEF3C7; color: #92400E; }
+  .pri.low    { background: #CFFAFE; color: #0E7490; }
 
   /* ─────────── Author footer (last block on last page) ─────────── */
+  /* Solid top border (no rectangle) reads as a soft document end-mark
+     rather than a coupon-style dashed cutout. */
   .author-box {
     margin-top: 10mm;
-    padding: 4mm 5mm;
-    border: 1px dashed rgba(15,10,40,0.16);
-    border-radius: 3mm;
+    padding-top: 4mm;
+    border-top: 1px solid rgba(15,10,40,0.12);
     font-size: 9.5pt;
     color: rgba(26,11,51,0.65);
     line-height: 1.55;
@@ -443,7 +461,7 @@
       {% for t in topics %}
       <div class="topic">
         <div class="topic-head">
-          <div class="num">{{ loop.index }}</div>
+          <div class="num">{{ "%02d" | format(loop.index) }}</div>
           <div class="topic-title">{{ t.title }}</div>
         </div>
         {% if t.bullets %}
@@ -480,25 +498,43 @@
   {% endif %}
 
   {% if tasks %}
+    {# Build a grid-template-columns string that drops empty columns —
+       a column of "—" wastes 30% of width and signals "this document
+       wasn't filled in." Always-on columns: № and Задача. #}
+    {%- set cols_parts = ['22px', '1fr'] -%}
+    {%- if tasks_have_priority %}{%- set cols_parts = cols_parts + ['22mm'] -%}{%- endif -%}
+    {%- if tasks_have_owners %}{%- set cols_parts = cols_parts + ['32mm'] -%}{%- endif -%}
+    {%- if tasks_have_dues %}{%- set cols_parts = cols_parts + ['16mm'] -%}{%- endif -%}
+    {%- set grid_cols = cols_parts | join(' ') -%}
+
   <div class="section">
     <h2>Задачи <span class="h-counter">{{ tasks | length }}</span></h2>
     <div class="tasks">
-      <div class="tr head">
+      <div class="tr head" style="grid-template-columns: {{ grid_cols }};">
         <div class="col">№</div>
         <div class="col">Задача</div>
-        <div class="col">Ответственный</div>
-        <div class="col">Срок</div>
+        {% if tasks_have_priority %}<div class="col">Приоритет</div>{% endif %}
+        {% if tasks_have_owners %}<div class="col">Ответственный</div>{% endif %}
+        {% if tasks_have_dues %}<div class="col">Срок</div>{% endif %}
       </div>
 
       {% for task in tasks %}
-      <div class="tr">
+      <div class="tr" style="grid-template-columns: {{ grid_cols }};">
         <div class="col-num">{{ "%02d" | format(loop.index) }}</div>
         <div class="col-title">
           <div class="t-title">{{ task.title }}</div>
           {% if task.description %}<div class="t-desc">{{ task.description }}</div>{% endif %}
         </div>
-        <div class="col-owner">{{ task.owner or "—" }}</div>
-        <div class="col-due">{{ task.due or "—" }}</div>
+        {% if tasks_have_priority %}
+        <div class="col-priority">
+          {% if task.priority == 'high' %}<span class="pri high">срочно</span>
+          {% elif task.priority == 'medium' %}<span class="pri medium">средний</span>
+          {% elif task.priority == 'low' %}<span class="pri low">не срочно</span>
+          {% endif %}
+        </div>
+        {% endif %}
+        {% if tasks_have_owners %}<div class="col-owner">{{ task.owner or "" }}</div>{% endif %}
+        {% if tasks_have_dues %}<div class="col-due">{{ task.due or "" }}</div>{% endif %}
       </div>
       {% endfor %}
     </div>

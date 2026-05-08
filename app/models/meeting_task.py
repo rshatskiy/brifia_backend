@@ -42,6 +42,10 @@ class MeetingTask(Base):
     # we don't have to migrate later).
     bitrix_task_id: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # LLM-emitted urgency. 'high' / 'medium' / 'low' or null for legacy rows.
+    # Used for visual badges in exports + sortable filters in dashboards.
+    priority: Mapped[str | None] = mapped_column(String(8), nullable=True)
+
     # Preserves order from the LLM-extracted tasks array
     position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
@@ -56,5 +60,9 @@ class MeetingTask(Base):
         CheckConstraint(
             "status IN ('open', 'done', 'cancelled')",
             name="ck_meeting_tasks_status",
+        ),
+        CheckConstraint(
+            "priority IS NULL OR priority IN ('high', 'medium', 'low')",
+            name="ck_meeting_tasks_priority",
         ),
     )

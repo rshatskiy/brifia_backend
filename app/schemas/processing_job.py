@@ -38,6 +38,7 @@ class SpeakerOut(BaseModel):
 class JobComplete(BaseModel):
     """Worker finished — full payload of results."""
     title: str | None = None
+    summary: str | None = None
     transcript_json: str
     transcript: str | None = None
     protocol: str | None = None

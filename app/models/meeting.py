@@ -18,6 +18,9 @@ class Meeting(Base):
     transcript: Mapped[str | None] = mapped_column(Text, nullable=True)
     transcript_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     protocol: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 2-3 sentence executive summary emitted by the LLM. Rendered prominently
+    # on the cover of exports; populated alongside protocol on /jobs/complete.
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     tasks_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     series_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("series.id", ondelete="SET NULL"), nullable=True, index=True)
     prompt_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("prompts.id", ondelete="SET NULL"), nullable=True)

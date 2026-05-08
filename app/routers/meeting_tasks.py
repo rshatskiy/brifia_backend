@@ -115,6 +115,7 @@ async def create_meeting_task(
         title=body.title.strip(),
         description=body.description,
         status=body.status,
+        priority=body.priority,
         due_date=body.due_date,
         assignee_participant_id=body.assignee_participant_id,
         position=next_position,
@@ -165,6 +166,8 @@ async def update_task(
         task.description = payload["description"]
     if "status" in payload and payload["status"] is not None:
         task.status = payload["status"]
+    if "priority" in payload:
+        task.priority = payload["priority"]
     if "due_date" in payload:
         task.due_date = payload["due_date"]
     if "assignee_participant_id" in payload:

@@ -460,6 +460,7 @@ async def job_complete(
     meeting.transcript_json = body.transcript_json
     meeting.transcript = body.transcript
     meeting.protocol = body.protocol
+    meeting.summary = body.summary
     meeting.tasks_json = body.tasks_json
     meeting.duration_seconds = body.duration_seconds
 
@@ -472,21 +473,6 @@ async def job_complete(
     await _charge_usage_if_first_completion(db, meeting, was_completed)
 
     job.status = "done"
-
-    # Fan tasks_json out into the meeting_tasks relational table so the
-    # living-tasks API (status, due_date, assignee, dashboard filters) has
-    # rows to operate on. tasks_json itself is kept as-is for backward
-    # compatibility — the table is the new source of truth.
-    #
-    # Re-analysis case: preserve user mutations (status/due_date/assignee/
-    # bitrix_task_id) for tasks whose title still matches the new payload.
-    # Brand-new tasks from this run are inserted; tasks that disappeared
-    # from the new payload are deleted (LLM dropped them, user can re-add
-    # manually if they were valuable).
-    try:
-        await _sync_meeting_tasks_from_payload(db, meeting.id, body.tasks_json)
-    except Exception as e:
-        logger.warning("meeting_tasks fanout failed for meeting=%s: %s", meeting.id, e)
 
     # Persist speakers — UPSERT by (meeting_id, speaker_label).
     # Preserves participant_id from prior runs so re-analysis doesn't wipe
@@ -565,6 +551,28 @@ async def job_complete(
         # the speakers API; clients store and match in their local encrypted
         # SQLite. See config.voice_profiles_server_matching for the
         # historical flag (always False now).
+
+    # Flush so MeetingSpeaker rows get IDs and become visible to the next
+    # query inside this same transaction. The tasks fanout below reads
+    # MeetingSpeaker rows to resolve LLM `assignee_speaker_label` values
+    # to participant_ids (only useful on re-analysis, when a binding
+    # already exists from a prior run + manual user binding).
+    await db.flush()
+
+    # Fan tasks_json out into the meeting_tasks relational table so the
+    # living-tasks API (status, due_date, assignee, dashboard filters) has
+    # rows to operate on. tasks_json itself is kept as-is for backward
+    # compatibility — the table is the new source of truth.
+    #
+    # Re-analysis case: preserve user mutations (status/due_date/assignee/
+    # bitrix_task_id) for tasks whose title still matches the new payload.
+    # Brand-new tasks from this run are inserted; tasks that disappeared
+    # from the new payload are deleted (LLM dropped them, user can re-add
+    # manually if they were valuable).
+    try:
+        await _sync_meeting_tasks_from_payload(db, meeting.id, body.tasks_json)
+    except Exception as e:
+        logger.warning("meeting_tasks fanout failed for meeting=%s: %s", meeting.id, e)
 
     # Total processing duration (queued → completed) for the metric
     if meeting.processing_started_at is not None:
@@ -681,6 +689,13 @@ async def _sync_meeting_tasks_from_payload(
     a reasonable trade-off for MVP. Manually-created tasks (those that
     don't match any payload title) are also dropped on re-analysis; this
     is a known limitation tracked for v2.
+
+    Structured fields from the LLM payload (`assignee_speaker_label`,
+    `due_date_iso`, `priority`) are written for new rows, and refreshed
+    only when the existing row has not been overridden by the user
+    (existing `due_date is None`, `assignee_participant_id is None`).
+    Priority is unconditionally refreshed because there's no per-task
+    user-set priority yet.
     """
     if not tasks_json:
         # Worker emitted no tasks (or analysis empty) — wipe relational
@@ -694,6 +709,16 @@ async def _sync_meeting_tasks_from_payload(
     parsed = _parse_possibly_double_encoded_tasks(tasks_json)
     if parsed is None:
         return
+
+    # Build SPEAKER_N → participant_id map for this meeting so we can
+    # resolve LLM-assigned speakers to actual participants.
+    sp_q = await db.execute(
+        select(MeetingSpeaker.speaker_label, MeetingSpeaker.participant_id)
+        .where(MeetingSpeaker.meeting_id == meeting_id)
+    )
+    speaker_to_participant: dict[str, uuid.UUID | None] = {
+        row[0]: row[1] for row in sp_q.all()
+    }
 
     # Load existing rows for this meeting, indexed by title
     existing_q = await db.execute(
@@ -712,20 +737,72 @@ async def _sync_meeting_tasks_from_payload(
             continue
         seen_titles.add(title)
         description = raw.get("description")
+        priority = _normalize_priority(raw.get("priority"))
+        due_date = _parse_iso_date(raw.get("due_date_iso"))
+        assignee_label = raw.get("assignee_speaker_label")
+        assignee_pid = (
+            speaker_to_participant.get(assignee_label)
+            if isinstance(assignee_label, str) else None
+        )
+
         existing = existing_by_title.get(title)
         if existing is not None:
-            # Keep user mutations; just refresh description + ordering
+            # Keep user mutations; just refresh description + ordering +
+            # priority. Don't overwrite due_date / assignee if the user
+            # has already set them by hand.
             existing.description = description
             existing.position = position
+            existing.priority = priority
+            if existing.due_date is None and due_date is not None:
+                existing.due_date = due_date
+            if existing.assignee_participant_id is None and assignee_pid is not None:
+                existing.assignee_participant_id = assignee_pid
         else:
             db.add(MeetingTask(
                 meeting_id=meeting_id,
                 title=title[:1024],
                 description=description,
                 position=position,
+                priority=priority,
+                due_date=due_date,
+                assignee_participant_id=assignee_pid,
             ))
 
     # Drop rows whose title didn't appear in the new payload
     for title, row in existing_by_title.items():
         if title not in seen_titles:
             await db.delete(row)
+
+
+_VALID_PRIORITIES = ("high", "medium", "low")
+
+
+def _normalize_priority(raw) -> str | None:
+    """LLM should emit 'high'/'medium'/'low' but tolerate noise: case,
+    whitespace, missing field. Anything outside the trio → None so the
+    DB CHECK constraint doesn't reject the row."""
+    if not raw or not isinstance(raw, str):
+        return None
+    v = raw.strip().lower()
+    return v if v in _VALID_PRIORITIES else None
+
+
+def _parse_iso_date(raw) -> datetime | None:
+    """LLM emits 'YYYY-MM-DD' (date only). We store as DateTime(timezone=True)
+    so promote to UTC midnight. Tolerates None / non-strings / malformed
+    values by returning None."""
+    if not raw or not isinstance(raw, str):
+        return None
+    try:
+        # date.fromisoformat handles strict YYYY-MM-DD; some LLMs emit
+        # full ISO timestamps so try datetime.fromisoformat as fallback.
+        try:
+            d = datetime.fromisoformat(raw)
+        except ValueError:
+            from datetime import date as _date
+            d = datetime.combine(_date.fromisoformat(raw), datetime.min.time())
+        if d.tzinfo is None:
+            d = d.replace(tzinfo=timezone.utc)
+        return d
+    except (ValueError, TypeError):
+        return None
