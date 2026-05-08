@@ -13,15 +13,23 @@
       content: element(running-header);
       vertical-align: middle;
     }
+    /* Both footer corners use the SAME font weight/colour/letter-spacing
+       so the row reads as one balanced strip. The doc-id is inlined via
+       Jinja — its only characters are [A-Z0-9-] so escaping is a non-issue. */
     @bottom-left {
-      content: element(running-footer-left);
+      content: "{{ doc_id }} · Конфиденциально · только для участников";
+      font-size: 9pt;
+      color: rgba(26,11,51,0.5);
+      font-weight: 500;
+      letter-spacing: 0.02em;
       vertical-align: top;
+      padding-top: 2mm;
     }
     @bottom-right {
       content: "Сгенерировано Brifia · стр. " counter(page) " / " counter(pages);
       font-size: 9pt;
-      color: rgba(26,11,51,0.45);
-      font-weight: 600;
+      color: rgba(26,11,51,0.5);
+      font-weight: 500;
       letter-spacing: 0.02em;
       text-align: right;
       vertical-align: top;
@@ -45,32 +53,22 @@
     line-height: 1.5;
   }
 
-  /* ─────────── Running header / footer ─────────── */
+  /* ─────────── Running header ─────────── */
+  /* Plain block, no flex and no inline-flex .mark — WeasyPrint's running-
+     element implementation doesn't carry flex layout into the @page
+     margin, so the previous setup rendered the .mark's coloured square
+     and its SVG child as two separate stacked boxes ("doubled logo").
+     Text-only is cleaner anyway: brand recognition is already on the
+     cover. */
   .running-header {
     position: running(running-header);
-    display: flex; align-items: center; gap: 8px;
     font-size: 10pt; color: rgba(26,11,51,0.7);
     padding-bottom: 3mm;
     border-bottom: 1px solid rgba(15,10,40,0.08);
     width: 100%;
+    line-height: 1.45;
   }
-  .running-header .mark {
-    width: 18px; height: 18px; border-radius: 5px;
-    background: #7C3AED;
-    display: inline-flex; align-items: center; justify-content: center;
-    flex-shrink: 0;
-  }
-  .running-header .mark svg { width: 11px; height: 11px; display: block; }
-  .running-header strong { color: #1A0B33; font-weight: 700; margin-right: 4px; }
-
-  .running-footer-left {
-    position: running(running-footer-left);
-    font-size: 9pt;
-    color: rgba(26,11,51,0.45);
-    letter-spacing: 0.02em;
-    padding-top: 2mm;
-    width: 100%;
-  }
+  .running-header strong { color: #1A0B33; font-weight: 700; margin-right: 6px; }
 
   /* ─────────── Cover header ─────────── */
   .doc-head {
@@ -366,16 +364,10 @@
   {% endset %}
 
   {# Running header — appears in @top-left on every page EXCEPT the first
-     (handled by @page :first override). The brand mark uses solid colour
-     (linear-gradient on tiny inline-flex elements renders pale in WeasyPrint). #}
+     (handled by @page :first override). Text-only — the brand SVG
+     misbehaves inside WeasyPrint's running-element area. #}
   <div class="running-header">
-    <span class="mark">{{ brand_svg | safe }}</span>
-    <span><strong>Brifia</strong>{{ title }} · {{ meta.date }}</span>
-  </div>
-
-  {# Running footer-left — appears in @bottom-left on every page #}
-  <div class="running-footer-left">
-    {{ doc_id }} · Конфиденциально · только для участников
+    <strong>Brifia</strong>{{ title }} · {{ meta.date }}
   </div>
 
   {# ────── Cover content (first physical page) ────── #}
@@ -384,7 +376,7 @@
       <div class="brand-mark">{{ brand_svg | safe }}</div>
       <div>
         <div class="brand-name">Brifia</div>
-        <div class="brand-tag">ИИ-секретарь · Протокол встречи</div>
+        <div class="brand-tag">ИИ-секретарь встреч</div>
       </div>
     </div>
     <div class="doc-id">
