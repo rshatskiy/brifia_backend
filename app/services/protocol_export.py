@@ -205,10 +205,17 @@ def _bullets(section_md: str) -> list[str]:
 
 
 def _ru_date(d: datetime) -> str:
+    """Full timestamp with year — used in `Сгенерировано · ...` line on cover."""
     return f"{d.day} {_RU_MONTHS[d.month - 1]} {d.year}, {d.hour:02d}:{d.minute:02d}"
 
 
+def _ru_meeting_date(d: datetime) -> str:
+    """Cover meta-grid + running header. No year (cells are narrow)."""
+    return f"{d.day} {_RU_MONTHS[d.month - 1]}, {d.hour:02d}:{d.minute:02d}"
+
+
 def _ru_short_date(d: datetime) -> str:
+    """Tasks `Срок` column — date only, no time."""
     return f"{d.day} {_RU_MONTHS[d.month - 1]}"
 
 
@@ -305,7 +312,7 @@ async def _build_context(
         "title": (meeting.title or "Встреча").strip(),
         "eyebrow": None,  # could populate from series in future
         "meta": {
-            "date": _ru_date(meeting.created_at),
+            "date": _ru_meeting_date(meeting.created_at),
             "duration": _ru_duration(meeting.duration_seconds),
             "participants_count": f"{len(participants)} {'спикер' if len(participants) == 1 else 'спикеров'}",
             "tasks_count": str(len(tasks)),

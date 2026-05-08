@@ -4,63 +4,86 @@
 <meta charset="utf-8">
 <title>Протокол встречи · Brifia</title>
 <style>
-  @page { size: A4; margin: 0; }
+  /* ─────────── Page geometry ─────────── */
+  @page {
+    size: A4;
+    margin: 22mm 16mm 22mm;
+
+    @top-left {
+      content: element(running-header);
+      vertical-align: middle;
+    }
+    @bottom-left {
+      content: element(running-footer-left);
+      vertical-align: top;
+    }
+    @bottom-right {
+      content: "Сгенерировано Brifia · стр. " counter(page) " / " counter(pages);
+      font-size: 9pt;
+      color: rgba(26,11,51,0.45);
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      text-align: right;
+      vertical-align: top;
+      padding-top: 2mm;
+    }
+  }
+
+  /* Cover page — no top header (the body provides its own brand block). */
+  @page :first {
+    @top-left { content: ""; }
+  }
+
   * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; background: #fff; }
+  html, body { margin: 0; padding: 0; }
   body {
     font-family: "Inter", "Helvetica", "Arial", sans-serif;
     color: #1A0B33;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
+    font-size: 11pt;
+    line-height: 1.5;
   }
 
-  .page {
-    width: 210mm;
-    min-height: 297mm;
-    background: #fff;
-    padding: 18mm 16mm 18mm;
-    position: relative;
-    overflow: hidden;
-    page-break-after: always;
-    color: #1A0B33;
+  /* ─────────── Running header / footer ─────────── */
+  .running-header {
+    position: running(running-header);
+    display: flex; align-items: center; gap: 8px;
+    font-size: 10pt; color: rgba(26,11,51,0.7);
+    padding-bottom: 3mm;
+    border-bottom: 1px solid rgba(15,10,40,0.08);
+    width: 100%;
   }
-  .page:last-child { page-break-after: auto; }
+  .running-header .mark {
+    width: 18px; height: 18px; border-radius: 5px;
+    background: #7C3AED;
+    display: inline-flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .running-header .mark svg { width: 11px; height: 11px; display: block; }
+  .running-header strong { color: #1A0B33; font-weight: 700; margin-right: 4px; }
 
-  /* Brand corner accent on every page */
-  .page::before {
-    content: "";
-    position: absolute;
-    top: 0; right: 0;
-    width: 140mm; height: 28mm;
-    background:
-      radial-gradient(ellipse 220mm 60mm at 100% 0%, rgba(124,58,237,0.10), transparent 60%),
-      radial-gradient(ellipse 120mm 40mm at 70% 0%, rgba(34,211,238,0.06), transparent 70%);
-    pointer-events: none;
-  }
-  .page::after {
-    content: "";
-    position: absolute;
-    top: 0; left: 16mm; right: 16mm;
-    height: 3px;
-    background: linear-gradient(90deg, #7C3AED 0%, #7C3AED 40%, #06B6D4 100%);
-    opacity: 0.9;
+  .running-footer-left {
+    position: running(running-footer-left);
+    font-size: 9pt;
+    color: rgba(26,11,51,0.45);
+    letter-spacing: 0.02em;
+    padding-top: 2mm;
+    width: 100%;
   }
 
-  /* ─────────── Header (page 1) ─────────── */
+  /* ─────────── Cover header ─────────── */
   .doc-head {
     display: flex; justify-content: space-between; align-items: flex-start;
-    padding-top: 4mm;
-    margin-bottom: 14mm;
-    position: relative;
+    margin-bottom: 12mm;
   }
   .doc-head .brand-block { display: flex; align-items: center; gap: 10px; }
   .doc-head .brand-mark {
     width: 32px; height: 32px; border-radius: 9px;
-    background: linear-gradient(135deg, #A78BFA, #7C3AED 60%, #06B6D4);
+    background: #7C3AED;
     display: flex; align-items: center; justify-content: center;
-    box-shadow: 0 4px 12px -2px rgba(124,58,237,0.4);
   }
-  .doc-head .brand-mark svg { width: 18px; height: 18px; }
+  .doc-head .brand-mark svg { width: 18px; height: 18px; display: block; }
   .doc-head .brand-name {
     font-weight: 800; font-size: 15px; letter-spacing: -0.01em; color: #1A0B33;
   }
@@ -72,50 +95,52 @@
     text-align: right;
     font-variant-numeric: tabular-nums;
   }
-  .doc-head .doc-id strong { color: #1A0B33; font-weight: 600; display: block; margin-top: 2px; font-size: 11px; }
+  .doc-head .doc-id strong {
+    color: #1A0B33; font-weight: 700; display: block; margin-top: 2px;
+    font-size: 11px; letter-spacing: 0.04em;
+  }
 
+  /* ─────────── Title + meta-grid ─────────── */
   .eyebrow {
     font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
     color: #7C3AED;
   }
-
   h1.doc-title {
-    margin: 6mm 0 8mm;
-    font-size: 30pt;
+    margin: 4mm 0 7mm;
+    font-size: 28pt;
     font-weight: 700;
     letter-spacing: -0.02em;
     line-height: 1.1;
     color: #1A0B33;
   }
-
-  /* Meta grid */
   .meta-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
     gap: 0;
     border-top: 1px solid rgba(15,10,40,0.1);
     border-bottom: 1px solid rgba(15,10,40,0.1);
-    padding: 5mm 0;
-    margin-bottom: 10mm;
+    padding: 4mm 0;
+    margin-bottom: 8mm;
   }
   .meta-grid .cell {
-    padding: 0 4mm;
+    padding: 0 3mm;
     border-right: 1px solid rgba(15,10,40,0.06);
   }
   .meta-grid .cell:last-child { border-right: none; }
   .meta-grid .cell:first-child { padding-left: 0; }
   .meta-grid .label {
-    font-size: 9px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase;
+    font-size: 8.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
     color: rgba(26,11,51,0.5);
     margin-bottom: 3px;
   }
   .meta-grid .value {
-    font-size: 12pt; font-weight: 600; color: #1A0B33;
+    font-size: 11pt; font-weight: 600; color: #1A0B33;
     letter-spacing: -0.01em;
+    white-space: nowrap;
   }
 
-  /* Section heading */
-  .section { margin-bottom: 9mm; page-break-inside: avoid; }
+  /* ─────────── Sections ─────────── */
+  .section { margin-bottom: 8mm; }
   .section h2 {
     font-size: 13pt;
     font-weight: 700;
@@ -123,13 +148,15 @@
     margin: 0 0 4mm;
     color: #1A0B33;
     display: flex; align-items: center; gap: 8px;
+    page-break-after: avoid;
+    break-after: avoid;
   }
   .section h2::before {
     content: "";
     display: inline-block;
-    width: 4px; height: 18px;
+    width: 4px; height: 17px;
     border-radius: 2px;
-    background: linear-gradient(180deg, #7C3AED, #06B6D4);
+    background: #7C3AED;
   }
   .section .h-counter {
     margin-left: auto;
@@ -138,364 +165,345 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* Summary */
+  /* Force the second logical part (decisions+tasks) onto a new page. */
+  .page-break { break-before: page; page-break-before: always; }
+
+  /* ─────────── Summary ─────────── */
   .summary {
-    font-size: 11pt; line-height: 1.65; color: #1A0B33;
-    padding: 6mm;
-    border-radius: 6mm;
-    background: linear-gradient(135deg, rgba(124,58,237,0.06), rgba(6,182,212,0.04));
-    border: 1px solid rgba(124,58,237,0.16);
+    font-size: 11pt; line-height: 1.6; color: #1A0B33;
+    padding: 5mm;
+    border-radius: 4mm;
+    background: #F5F0FB;
+    border: 1px solid rgba(124,58,237,0.18);
     position: relative;
+    page-break-inside: avoid;
+    break-inside: avoid;
   }
   .summary .qmark {
-    position: absolute; top: 4mm; right: 4mm;
-    font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: #7C3AED;
+    display: block;
+    font-size: 9px; font-weight: 700; letter-spacing: 0.12em; color: #7C3AED;
     text-transform: uppercase;
+    margin-bottom: 3mm;
   }
 
-  /* Participants row */
+  /* ─────────── Participants ─────────── */
   .people {
-    display: flex; gap: 8px; flex-wrap: wrap;
+    display: flex; flex-wrap: wrap;
+    gap: 6px;
   }
   .person {
-    display: flex; align-items: center; gap: 8px;
-    padding: 6px 12px 6px 6px;
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 4px 11px 4px 4px;
     border-radius: 999px;
     background: #F5F2FB;
     border: 1px solid rgba(15,10,40,0.05);
     font-size: 10pt;
+    page-break-inside: avoid;
+    break-inside: avoid;
   }
   .person .av {
-    width: 26px; height: 26px; border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
-    color: #fff; font-weight: 700; font-size: 11px;
+    width: 26px; height: 26px; border-radius: 999px;
+    color: #fff; font-weight: 700; font-size: 11.5px;
+    text-align: center;
+    line-height: 26px;
+    flex-shrink: 0;
   }
-  .person .av.violet { background: linear-gradient(135deg, #A78BFA, #7C3AED); }
-  .person .av.cyan   { background: linear-gradient(135deg, #67E8F9, #06B6D4); }
-  .person .av.pink   { background: linear-gradient(135deg, #F9A8D4, #EC4899); }
-  .person .av.amber  { background: linear-gradient(135deg, #FCD34D, #D97706); }
-  .person .av.emerald{ background: linear-gradient(135deg, #6EE7B7, #059669); }
-  .person .role { font-size: 9px; font-weight: 600; color: rgba(26,11,51,0.5); letter-spacing: 0.04em; text-transform: uppercase; margin-top: 1px; }
+  /* Solid backgrounds — small gradient circles render too pale in WeasyPrint */
+  .person .av.violet  { background: #7C3AED; }
+  .person .av.cyan    { background: #06B6D4; }
+  .person .av.pink    { background: #EC4899; }
+  .person .av.amber   { background: #D97706; }
+  .person .av.emerald { background: #059669; }
+  .person .role {
+    font-size: 8.5px; font-weight: 700; color: rgba(26,11,51,0.5);
+    letter-spacing: 0.04em; text-transform: uppercase; margin-top: 1px;
+  }
 
-  /* Topics */
-  .topics { display: flex; flex-direction: column; gap: 4mm; }
+  /* ─────────── Topics ─────────── */
+  .topics { display: flex; flex-direction: column; gap: 3mm; }
   .topic {
-    padding: 5mm;
+    padding: 4mm 5mm;
     border: 1px solid rgba(15,10,40,0.08);
-    border-radius: 4mm;
+    border-radius: 3mm;
     background: #fff;
+    page-break-inside: avoid;
+    break-inside: avoid;
   }
-  .topic .topic-head {
-    display: flex; align-items: flex-start; gap: 10px;
+  .topic-head {
+    display: flex; align-items: flex-start; gap: 9px;
   }
   .topic .num {
     width: 22px; height: 22px; border-radius: 6px;
-    display: flex; align-items: center; justify-content: center;
     color: #fff; font-weight: 700; font-size: 11px;
-    background: linear-gradient(135deg, #A78BFA, #7C3AED);
+    background: #7C3AED;
+    text-align: center;
+    line-height: 22px;
     flex-shrink: 0;
     margin-top: 1px;
   }
-  .topic .topic-title { font-weight: 600; font-size: 11.5pt; color: #1A0B33; letter-spacing: -0.005em; line-height: 1.45; }
+  .topic-title {
+    font-weight: 600; font-size: 11pt; color: #1A0B33;
+    letter-spacing: -0.005em; line-height: 1.45;
+    flex: 1;
+  }
   .topic ul {
-    margin: 3mm 0 0;
-    padding-left: 32px;
+    margin: 2mm 0 0 32px;
+    padding: 0;
     color: rgba(26,11,51,0.82);
     font-size: 10.5pt;
-    line-height: 1.65;
+    line-height: 1.6;
   }
   .topic ul li { margin-bottom: 1px; }
 
-  /* Decisions */
+  /* ─────────── Decisions ─────────── */
   .decisions {
-    padding: 5mm 6mm;
-    border-radius: 4mm;
-    background: rgba(74,222,128,0.06);
-    border: 1px solid rgba(34,160,80,0.18);
+    padding: 4mm 5mm;
+    border-radius: 3mm;
+    background: #ECFDF3;
+    border: 1px solid rgba(34,160,80,0.22);
   }
   .decision {
     display: flex; align-items: flex-start; gap: 10px;
-    padding: 4px 0;
-    font-size: 11pt;
+    padding: 3px 0;
+    font-size: 10.5pt;
     color: #1A0B33;
     line-height: 1.5;
+    page-break-inside: avoid;
+    break-inside: avoid;
   }
-  .decision + .decision { border-top: 1px dashed rgba(34,160,80,0.18); padding-top: 8px; margin-top: 4px; }
+  .decision + .decision {
+    border-top: 1px dashed rgba(34,160,80,0.22);
+    padding-top: 7px; margin-top: 4px;
+  }
   .decision .check {
     width: 18px; height: 18px; border-radius: 50%;
     background: #10B981;
-    display: flex; align-items: center; justify-content: center;
+    text-align: center;
+    line-height: 18px;
     flex-shrink: 0;
     margin-top: 2px;
   }
-  .decision .check svg { stroke: #fff; }
+  .decision .check svg {
+    width: 11px; height: 11px;
+    vertical-align: middle;
+  }
 
-  /* Tasks table */
+  /* ─────────── Tasks table ─────────── */
   .tasks {
-    border-radius: 4mm;
+    border-radius: 3mm;
     overflow: hidden;
     border: 1px solid rgba(15,10,40,0.08);
   }
   .tasks .tr {
     display: grid;
-    grid-template-columns: 24px 1fr 90px 70px;
-    gap: 12px;
+    grid-template-columns: 22px 1fr 26mm 18mm;
+    gap: 10px;
     padding: 4mm 5mm;
     align-items: start;
     font-size: 10.5pt;
     border-bottom: 1px solid rgba(15,10,40,0.06);
+    page-break-inside: avoid;
+    break-inside: avoid;
   }
   .tasks .tr:last-child { border-bottom: none; }
   .tasks .tr.head {
     background: #F5F2FB;
-    font-size: 9px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
-    color: rgba(26,11,51,0.5);
+    font-size: 8.5pt; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+    color: rgba(26,11,51,0.55);
   }
   .tasks .tr.head .col { padding-top: 2px; }
   .tasks .col-num {
     color: rgba(26,11,51,0.4); font-variant-numeric: tabular-nums; padding-top: 2px;
-    font-weight: 600;
+    font-weight: 700;
   }
-  .tasks .col-title .t-title { font-weight: 600; color: #1A0B33; line-height: 1.4; }
-  .tasks .col-title .t-desc { font-size: 9.5pt; color: rgba(26,11,51,0.6); margin-top: 4px; line-height: 1.5; }
-  .tasks .col-due { font-variant-numeric: tabular-nums; color: rgba(26,11,51,0.75); padding-top: 2px; }
-  .tasks .col-owner { color: rgba(26,11,51,0.75); padding-top: 2px; font-weight: 500; }
+  .tasks .col-title .t-title {
+    font-weight: 600; color: #1A0B33; line-height: 1.4;
+  }
+  .tasks .col-title .t-desc {
+    font-size: 9.5pt; color: rgba(26,11,51,0.6);
+    margin-top: 3px; line-height: 1.5;
+  }
+  .tasks .col-due  { font-variant-numeric: tabular-nums; color: rgba(26,11,51,0.75); padding-top: 2px; }
+  .tasks .col-owner { color: rgba(26,11,51,0.78); padding-top: 2px; font-weight: 500; }
 
-  /* Page footer */
-  .page-foot {
-    position: absolute;
-    left: 16mm; right: 16mm; bottom: 12mm;
-    display: flex; justify-content: space-between; align-items: center;
-    font-size: 9pt;
-    color: rgba(26,11,51,0.45);
-    border-top: 1px solid rgba(15,10,40,0.08);
-    padding-top: 4mm;
-    letter-spacing: 0.02em;
-  }
-  .page-foot .left-info { display: flex; align-items: center; gap: 12px; }
-  .page-foot .left-info .dot { width: 4px; height: 4px; background: rgba(26,11,51,0.3); border-radius: 50%; }
-  .page-foot .gen-by { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; color: rgba(26,11,51,0.6); }
-
-  /* Continuation header (page 2+) */
-  .cont-head {
-    display: flex; justify-content: space-between; align-items: center;
-    margin-top: 2mm; margin-bottom: 8mm;
-    padding-bottom: 4mm;
-    border-bottom: 1px solid rgba(15,10,40,0.08);
-    position: relative;
-  }
-  .cont-head .left { display: flex; align-items: center; gap: 10px; }
-  .cont-head .brand-mark-sm {
-    width: 22px; height: 22px; border-radius: 6px;
-    background: linear-gradient(135deg, #A78BFA, #7C3AED 60%, #06B6D4);
-    display: flex; align-items: center; justify-content: center;
-  }
-  .cont-head .brand-mark-sm svg { width: 12px; height: 12px; }
-  .cont-head .title-sm { font-size: 10pt; font-weight: 600; color: rgba(26,11,51,0.7); }
-  .cont-head .title-sm strong { color: #1A0B33; font-weight: 700; margin-right: 6px; }
-  .cont-head .pg { font-size: 9pt; color: rgba(26,11,51,0.45); letter-spacing: 0.06em; text-transform: uppercase; font-variant-numeric: tabular-nums; }
-
+  /* ─────────── Author footer (last block on last page) ─────────── */
   .author-box {
-    margin-top: 12mm;
-    padding: 5mm;
+    margin-top: 10mm;
+    padding: 4mm 5mm;
     border: 1px dashed rgba(15,10,40,0.16);
-    border-radius: 4mm;
+    border-radius: 3mm;
     font-size: 9.5pt;
-    color: rgba(26,11,51,0.6);
+    color: rgba(26,11,51,0.65);
     line-height: 1.55;
+    page-break-inside: avoid;
+    break-inside: avoid;
   }
-  .author-box strong { color: #1A0B33; }
+  .author-box strong { color: #1A0B33; font-weight: 700; }
 </style>
 </head>
 <body>
+
   {# Brand SVG used in headers #}
   {% set brand_svg %}
-    <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
       <rect x="9" y="3" width="6" height="12" rx="3" />
       <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
     </svg>
   {% endset %}
 
-  <!-- ────────── PAGE 1 ────────── -->
-  <div class="page">
-    <div class="doc-head">
-      <div class="brand-block">
-        <div class="brand-mark">{{ brand_svg | safe }}</div>
-        <div>
-          <div class="brand-name">Brifia</div>
-          <div class="brand-tag">ИИ-секретарь · Протокол встречи</div>
-        </div>
-      </div>
-      <div class="doc-id">
-        Документ № <strong>{{ doc_id }}</strong>
-        <div style="margin-top: 4px; font-size: 9px;">Сгенерировано · {{ generated_at }}</div>
+  {# Running header — appears in @top-left on every page EXCEPT the first
+     (handled by @page :first override). The brand mark uses solid colour
+     (linear-gradient on tiny inline-flex elements renders pale in WeasyPrint). #}
+  <div class="running-header">
+    <span class="mark">{{ brand_svg | safe }}</span>
+    <span><strong>Brifia</strong>{{ title }} · {{ meta.date }}</span>
+  </div>
+
+  {# Running footer-left — appears in @bottom-left on every page #}
+  <div class="running-footer-left">
+    {{ doc_id }} · Конфиденциально · только для участников
+  </div>
+
+  {# ────── Cover content (first physical page) ────── #}
+  <div class="doc-head">
+    <div class="brand-block">
+      <div class="brand-mark">{{ brand_svg | safe }}</div>
+      <div>
+        <div class="brand-name">Brifia</div>
+        <div class="brand-tag">ИИ-секретарь · Протокол встречи</div>
       </div>
     </div>
-
-    {% if eyebrow %}<div class="eyebrow">{{ eyebrow }}</div>{% endif %}
-    <h1 class="doc-title">{{ title }}</h1>
-
-    <div class="meta-grid">
-      <div class="cell">
-        <div class="label">Дата</div>
-        <div class="value">{{ meta.date }}</div>
-      </div>
-      <div class="cell">
-        <div class="label">Длительность</div>
-        <div class="value">{{ meta.duration }}</div>
-      </div>
-      <div class="cell">
-        <div class="label">Участников</div>
-        <div class="value">{{ meta.participants_count }}</div>
-      </div>
-      <div class="cell">
-        <div class="label">Задач</div>
-        <div class="value">{{ meta.tasks_count }}</div>
-      </div>
-    </div>
-
-    {% if participants %}
-    <div class="section">
-      <h2>Участники <span class="h-counter">{{ participants | length }}</span></h2>
-      <div class="people">
-        {% for p in participants %}
-        <div class="person">
-          <div class="av {{ p.color }}">{{ p.initial }}</div>
-          <div>
-            <div>{{ p.name }}</div>
-            {% if p.role %}<div class="role">{{ p.role }}</div>{% endif %}
-          </div>
-        </div>
-        {% endfor %}
-      </div>
-    </div>
-    {% endif %}
-
-    {% if summary %}
-    <div class="section">
-      <h2>Резюме</h2>
-      <div class="summary">
-        <span class="qmark">AI · резюме</span>
-        {{ summary }}
-      </div>
-    </div>
-    {% endif %}
-
-    {% if topics %}
-    <div class="section">
-      <h2>Ключевые темы <span class="h-counter">{{ topics | length }}</span></h2>
-      <div class="topics">
-        {% for t in topics %}
-        <div class="topic">
-          <div class="topic-head">
-            <div class="num">{{ loop.index }}</div>
-            <div class="topic-title">{{ t.title }}</div>
-          </div>
-          {% if t.bullets %}
-          <ul>
-            {% for b in t.bullets %}<li>{{ b }}</li>{% endfor %}
-          </ul>
-          {% endif %}
-        </div>
-        {% endfor %}
-      </div>
-    </div>
-    {% endif %}
-
-    <div class="page-foot">
-      <div class="left-info">
-        <span>{{ doc_id }}</span>
-        <span class="dot"></span>
-        <span>Конфиденциально · только для участников</span>
-      </div>
-      <div style="display: flex; align-items: center; gap: 10px;">
-        <span class="gen-by">Сгенерировано Brifia</span>
-        <span style="opacity: 0.5;">·</span>
-        <span>1 / {{ total_pages }}</span>
+    <div class="doc-id">
+      Документ № <strong>{{ doc_id }}</strong>
+      <div style="margin-top: 4px; font-size: 9px; letter-spacing: 0.02em; text-transform: none; color: rgba(26,11,51,0.45);">
+        Сгенерировано · {{ generated_at }}
       </div>
     </div>
   </div>
 
-  {% if has_page_2 %}
-  <!-- ────────── PAGE 2 ────────── -->
-  <div class="page">
-    <div class="cont-head">
-      <div class="left">
-        <div class="brand-mark-sm">
-          <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="9" y="3" width="6" height="12" rx="3" />
-            <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
-          </svg>
-        </div>
-        <div class="title-sm"><strong>Brifia</strong>{{ title }} · {{ meta.date }}</div>
-      </div>
-      <div class="pg">2 / {{ total_pages }}</div>
+  {% if eyebrow %}<div class="eyebrow">{{ eyebrow }}</div>{% endif %}
+  <h1 class="doc-title">{{ title }}</h1>
+
+  <div class="meta-grid">
+    <div class="cell">
+      <div class="label">Дата</div>
+      <div class="value">{{ meta.date }}</div>
     </div>
-
-    {% if decisions %}
-    <div class="section">
-      <h2>Принятые решения <span class="h-counter">{{ decisions | length }}</span></h2>
-      <div class="decisions">
-        {% for d in decisions %}
-        <div class="decision">
-          <div class="check">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M5 13l4 4L19 7" />
-            </svg>
-          </div>
-          <div>{{ d | safe }}</div>
-        </div>
-        {% endfor %}
-      </div>
+    <div class="cell">
+      <div class="label">Длительность</div>
+      <div class="value">{{ meta.duration }}</div>
     </div>
-    {% endif %}
-
-    {% if tasks %}
-    <div class="section">
-      <h2>Задачи <span class="h-counter">{{ tasks | length }}</span></h2>
-      <div class="tasks">
-        <div class="tr head">
-          <div class="col">№</div>
-          <div class="col">Задача</div>
-          <div class="col">Ответственный</div>
-          <div class="col">Срок</div>
-        </div>
-
-        {% for task in tasks %}
-        <div class="tr">
-          <div class="col-num">{{ "%02d" | format(loop.index) }}</div>
-          <div class="col-title">
-            <div class="t-title">{{ task.title }}</div>
-            {% if task.description %}<div class="t-desc">{{ task.description }}</div>{% endif %}
-          </div>
-          <div class="col-owner">{{ task.owner or "—" }}</div>
-          <div class="col-due">{{ task.due or "—" }}</div>
-        </div>
-        {% endfor %}
-      </div>
+    <div class="cell">
+      <div class="label">Участников</div>
+      <div class="value">{{ meta.participants_count }}</div>
     </div>
-    {% endif %}
-
-    {% if author %}
-    <div class="author-box">
-      <strong>Протокол подготовил(а):</strong> {{ author.name }}{% if author.position %}, {{ author.position }}{% endif %}{% if author.company %} · {{ author.company }}{% endif %}.
-      Сгенерирован автоматически на основании аудиозаписи. Решения и задачи проверены ведущим.
+    <div class="cell">
+      <div class="label">Задач</div>
+      <div class="value">{{ meta.tasks_count }}</div>
     </div>
-    {% endif %}
+  </div>
 
-    <div class="page-foot">
-      <div class="left-info">
-        <span>{{ doc_id }}</span>
-        <span class="dot"></span>
-        <span>Конфиденциально · только для участников</span>
+  {% if participants %}
+  <div class="section">
+    <h2>Участники <span class="h-counter">{{ participants | length }}</span></h2>
+    <div class="people">
+      {% for p in participants %}
+      <div class="person">
+        <div class="av {{ p.color }}">{{ p.initial }}</div>
+        <div>
+          <div>{{ p.name }}</div>
+          {% if p.role %}<div class="role">{{ p.role }}</div>{% endif %}
+        </div>
       </div>
-      <div style="display: flex; align-items: center; gap: 10px;">
-        <span class="gen-by">Сгенерировано Brifia</span>
-        <span style="opacity: 0.5;">·</span>
-        <span>2 / {{ total_pages }}</span>
-      </div>
+      {% endfor %}
     </div>
   </div>
   {% endif %}
+
+  {% if summary %}
+  <div class="section">
+    <h2>Резюме</h2>
+    <div class="summary">
+      <span class="qmark">AI · резюме</span>
+      {{ summary }}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if topics %}
+  <div class="section">
+    <h2>Ключевые темы <span class="h-counter">{{ topics | length }}</span></h2>
+    <div class="topics">
+      {% for t in topics %}
+      <div class="topic">
+        <div class="topic-head">
+          <div class="num">{{ loop.index }}</div>
+          <div class="topic-title">{{ t.title }}</div>
+        </div>
+        {% if t.bullets %}
+        <ul>
+          {% for b in t.bullets %}<li>{{ b }}</li>{% endfor %}
+        </ul>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {# Force decisions + tasks onto a fresh page #}
+  {% if decisions or tasks %}<div class="page-break"></div>{% endif %}
+
+  {% if decisions %}
+  <div class="section">
+    <h2>Принятые решения <span class="h-counter">{{ decisions | length }}</span></h2>
+    <div class="decisions">
+      {% for d in decisions %}
+      <div class="decision">
+        <div class="check">
+          <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 13l4 4L19 7"/>
+          </svg>
+        </div>
+        <div>{{ d | safe }}</div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if tasks %}
+  <div class="section">
+    <h2>Задачи <span class="h-counter">{{ tasks | length }}</span></h2>
+    <div class="tasks">
+      <div class="tr head">
+        <div class="col">№</div>
+        <div class="col">Задача</div>
+        <div class="col">Ответственный</div>
+        <div class="col">Срок</div>
+      </div>
+
+      {% for task in tasks %}
+      <div class="tr">
+        <div class="col-num">{{ "%02d" | format(loop.index) }}</div>
+        <div class="col-title">
+          <div class="t-title">{{ task.title }}</div>
+          {% if task.description %}<div class="t-desc">{{ task.description }}</div>{% endif %}
+        </div>
+        <div class="col-owner">{{ task.owner or "—" }}</div>
+        <div class="col-due">{{ task.due or "—" }}</div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if author %}
+  <div class="author-box">
+    <strong>Протокол подготовил(а):</strong> {{ author.name }}{% if author.position %}, {{ author.position }}{% endif %}{% if author.company %} · {{ author.company }}{% endif %}.
+    Сгенерирован автоматически на основании аудиозаписи. Решения и задачи проверены ведущим.
+  </div>
+  {% endif %}
+
 </body>
 </html>
