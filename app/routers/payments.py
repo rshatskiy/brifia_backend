@@ -11,6 +11,8 @@ from app.models.payment import PaymentMethod, PaymentLog
 from app.auth import get_current_user
 from app.schemas.payment import CreatePaymentRequest, CreatePaymentResponse
 from app.config import get_settings
+from app.services.email_events import send_payment_success
+from app.services.email_service import fire_and_forget
 
 router = APIRouter(prefix="/api/v1/payments", tags=["payments"])
 
@@ -99,11 +101,13 @@ async def yookassa_webhook(request: Request, db: AsyncSession = Depends(get_db))
         if not plan:
             raise HTTPException(status_code=400, detail="Plan not found")
 
+        active_until = datetime.now(timezone.utc) + timedelta(days=plan.duration_days)
+
         profile_result = await db.execute(select(Profile).where(Profile.user_id == user_uuid))
         profile = profile_result.scalar_one_or_none()
         if profile:
             profile.current_plan_id = plan.id
-            profile.subscription_active_until = datetime.now(timezone.utc) + timedelta(days=plan.duration_days)
+            profile.subscription_active_until = active_until
             profile.paid_minutes_used_this_cycle = 0
 
         # Save payment method for auto-renewal
@@ -132,6 +136,32 @@ async def yookassa_webhook(request: Request, db: AsyncSession = Depends(get_db))
             log.status = "succeeded"
 
         await db.commit()
+
+        # Receipt email — fire-and-forget so a slow SMTP doesn't block YooKassa's
+        # webhook timeout. The webhook only needs a 200 to mark this payment
+        # delivered on their side.
+        user_q = await db.execute(
+            select(User.email, Profile.full_name)
+            .join(Profile, Profile.user_id == User.id, isouter=True)
+            .where(User.id == user_uuid)
+        )
+        row = user_q.one_or_none()
+        if row and row[0]:
+            user_email, full_name = row
+            amount_value = payment_obj.get("amount", {}).get("value")
+            try:
+                amount_float = float(amount_value) if amount_value else float(plan.price_rub)
+            except (TypeError, ValueError):
+                amount_float = float(plan.price_rub)
+            fire_and_forget(send_payment_success(
+                user_email,
+                name=full_name,
+                plan_name=plan.name,
+                amount=amount_float,
+                active_until=active_until,
+                payment_id=payment_id,
+                minutes_limit=getattr(plan, "minutes_limit", None),
+            ))
 
     elif event == "payment.canceled":
         log_result = await db.execute(

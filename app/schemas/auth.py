@@ -48,3 +48,16 @@ class WebSessionExchangeResponse(BaseModel):
     refresh_token: str
     token_type: str = "bearer"
     user_id: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+
+class GenericMessageResponse(BaseModel):
+    message: str

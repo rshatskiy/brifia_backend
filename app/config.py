@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     smtp_use_tls: bool = False     # implicit TLS (port 465)
     smtp_use_starttls: bool = True # STARTTLS upgrade (port 587)
 
+    # Base URL for the public web app — used to build links inside
+    # transactional emails (password reset, dashboard CTA, etc.).
+    web_base_url: str = "https://brifia.ru"
+
     # Voice profile matching — when False, server does NOT compute speaker
     # similarity, does NOT store aggregated voice profiles, and does NOT
     # auto-bind based on voice. Embeddings still flow through to clients

@@ -1,0 +1,62 @@
+{% extends "email/base.html" %}
+
+{% block preheader %}Добро пожаловать в Brifia — записывайте встречу, остальное мы сделаем.{% endblock %}
+
+{% block content %}
+<h1 class="h1" style="margin: 0 0 14px; font-size: 26px; font-weight: 700; color: #1A0B33; letter-spacing: -0.02em; line-height: 1.2;">
+  Привет{% if name %}, {{ name }}{% endif %}! 👋
+</h1>
+<p style="margin: 0 0 20px; font-size: 15px; line-height: 1.6; color: #1A0B33;">
+  Спасибо, что зарегистрировались в Brifia. Теперь у вас есть личный ИИ-секретарь —
+  он расшифрует встречу, выделит участников, задачи, решения и сложит всё в готовый протокол.
+</p>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 8px 0 24px; background: linear-gradient(135deg, #F5F0FB 0%, #EAF6FA 100%); background-color: #F5F0FB; border-radius: 12px; border: 1px solid #E8DFFB;">
+  <tr>
+    <td style="padding: 18px 22px;">
+      <p style="margin: 0 0 8px; font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #7C3AED;">
+        Что дальше
+      </p>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+        {% set steps = [
+          ("Запишите встречу прямо в приложении или загрузите готовую запись.", "1"),
+          ("Подождите пару минут, пока Brifia распознаёт спикеров и формирует протокол.", "2"),
+          ("Откройте готовый протокол, поделитесь PDF или отправьте его участникам по email.", "3"),
+        ] %}
+        {% for (text, n) in steps %}
+        <tr>
+          <td valign="top" width="28" style="padding-top: 8px;">
+            <div style="display: inline-block; width: 22px; height: 22px; background-color: #7C3AED; color: #FFFFFF; font-weight: 700; font-size: 11px; text-align: center; line-height: 22px; border-radius: 6px;">{{ n }}</div>
+          </td>
+          <td valign="top" style="padding: 8px 0 8px 8px; font-size: 14px; color: #1A0B33; line-height: 1.55;">
+            {{ text }}
+          </td>
+        </tr>
+        {% endfor %}
+      </table>
+    </td>
+  </tr>
+</table>
+
+<p style="margin: 0 0 16px; font-size: 14.5px; line-height: 1.6; color: #1A0B33;">
+  В бесплатном тарифе доступно <strong>60 минут записи в месяц</strong> — этого хватит, чтобы попробовать
+  на одной-двух коротких встречах и понять, насколько Brifia вам подходит.
+</p>
+
+{# CTA button — bulletproof for Outlook via inner table + bgcolor #}
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin: 22px 0 6px;">
+  <tr>
+    <td bgcolor="#7C3AED" style="background-color: #7C3AED; border-radius: 12px;">
+      <a href="https://brifia.ru/dashboard" style="display: inline-block; padding: 14px 28px; color: #FFFFFF; font-weight: 700; font-size: 15px; text-decoration: none; border-radius: 12px; font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;">
+        Открыть Brifia →
+      </a>
+    </td>
+  </tr>
+</table>
+
+<p style="margin: 30px 0 0; font-size: 13px; line-height: 1.6; color: #6B6080;">
+  Если что-то пойдёт не так — просто ответьте этому письму или напишите на
+  <a href="mailto:hello@brifia.ru" style="color: #7C3AED; text-decoration: none;">hello@brifia.ru</a>.
+  Мы читаем каждое сообщение.
+</p>
+{% endblock %}

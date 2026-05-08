@@ -1,0 +1,43 @@
+{% extends "email/base.html" %}
+
+{% block preheader %}{% if days_left > 0 %}Подписка Brifia заканчивается через {{ days_left }} {{ days_word }}.{% else %}Подписка Brifia закончилась — продлите, чтобы не терять минуты.{% endif %}{% endblock %}
+
+{% block content %}
+{% if days_left > 0 %}
+<h1 class="h1" style="margin: 0 0 14px; font-size: 24px; font-weight: 700; color: #1A0B33; letter-spacing: -0.02em; line-height: 1.25;">
+  Через {{ days_left }} {{ days_word }} закончится подписка
+</h1>
+<p style="margin: 0 0 18px; font-size: 15px; line-height: 1.6; color: #1A0B33;">
+  {% if name %}{{ name }}, ваш тариф{% else %}Ваш тариф{% endif %} <strong>«{{ plan_name }}»</strong> активен до
+  <strong>{{ active_until }}</strong>. Если автопродление отключено или к карте привязки нет — после
+  этой даты вы вернётесь на бесплатный тариф (60 минут записи в месяц).
+</p>
+{% else %}
+<h1 class="h1" style="margin: 0 0 14px; font-size: 24px; font-weight: 700; color: #1A0B33; letter-spacing: -0.02em; line-height: 1.25;">
+  Подписка закончилась
+</h1>
+<p style="margin: 0 0 18px; font-size: 15px; line-height: 1.6; color: #1A0B33;">
+  {% if name %}{{ name }}, ваш тариф{% else %}Ваш тариф{% endif %} <strong>«{{ plan_name }}»</strong>
+  закончился {{ active_until }}. Аккаунт переведён на бесплатный план — 60 минут записи в месяц.
+</p>
+{% endif %}
+
+<p style="margin: 0 0 18px; font-size: 14px; line-height: 1.6; color: #1A0B33;">
+  Чтобы вернуть полный доступ — зайдите в личный кабинет и продлите подписку:
+</p>
+
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin: 22px 0 6px;">
+  <tr>
+    <td bgcolor="#7C3AED" style="background-color: #7C3AED; border-radius: 12px;">
+      <a href="https://brifia.ru/dashboard" style="display: inline-block; padding: 14px 28px; color: #FFFFFF; font-weight: 700; font-size: 15px; text-decoration: none; border-radius: 12px;">
+        Продлить подписку →
+      </a>
+    </td>
+  </tr>
+</table>
+
+<p style="margin: 28px 0 0; font-size: 13px; line-height: 1.6; color: #6B6080;">
+  Если вы планировали уйти на free-tier — ничего делать не нужно. Все ваши встречи и протоколы остаются
+  доступными, просто новые записи будут учитываться в бесплатных 60 минутах.
+</p>
+{% endblock %}

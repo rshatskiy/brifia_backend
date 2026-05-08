@@ -8,6 +8,7 @@ from app.database import get_db
 from app.models.user import User, RefreshToken
 from app.models.profile import Profile
 from app.models.plan import Plan
+from app.models.password_reset_token import PasswordResetToken
 from app.auth import (
     hash_password, verify_password, hash_token,
     create_access_token, create_refresh_token,
@@ -17,8 +18,11 @@ from app.schemas.auth import (
     RegisterRequest, LoginRequest, RefreshRequest,
     OAuthRequest, TokenResponse, VerifyTokenResponse,
     WebSessionRequestResponse, WebSessionExchangeRequest, WebSessionExchangeResponse,
+    ForgotPasswordRequest, ResetPasswordRequest, GenericMessageResponse,
 )
 from app.config import get_settings
+from app.services.email_events import send_password_reset, send_welcome
+from app.services.email_service import fire_and_forget
 from fastapi.security import HTTPAuthorizationCredentials
 import secrets
 from fastapi import Request
@@ -82,6 +86,9 @@ async def register(req: RegisterRequest, db: AsyncSession = Depends(get_db)):
     )
     db.add(profile)
     await db.commit()
+
+    # Welcome email — fire-and-forget so SMTP latency doesn't block signup
+    fire_and_forget(send_welcome(user.email, name=req.full_name))
 
     return await _issue_tokens(user, db)
 
@@ -197,6 +204,7 @@ async def oauth_login(req: OAuthRequest, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
 
+    is_new_user = user is None
     if not user:
         user = User(
             email=email,
@@ -213,6 +221,9 @@ async def oauth_login(req: OAuthRequest, db: AsyncSession = Depends(get_db)):
         db.add(profile)
         await db.commit()
 
+    if is_new_user and email:
+        fire_and_forget(send_welcome(email, name=full_name))
+
     return await _issue_tokens(user, db)
 
 
@@ -227,6 +238,122 @@ async def delete_account(user: User = Depends(get_current_user), db: AsyncSessio
     await db.delete(user)
     await db.commit()
     return {"message": "Account deleted"}
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Password reset
+# ─────────────────────────────────────────────────────────────────────
+
+PASSWORD_RESET_TTL_MINUTES = 30
+MIN_PASSWORD_LENGTH = 8
+
+
+@router.post("/password/forgot", response_model=GenericMessageResponse)
+async def forgot_password(
+    body: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)
+):
+    """Issue a one-time reset token and email it to the user.
+
+    Always returns 200 with the same generic body — we deliberately do
+    NOT reveal whether the email is registered, to prevent user
+    enumeration. The email lands only if the address belongs to a real
+    account; otherwise nothing happens server-side.
+    """
+    generic_response = GenericMessageResponse(
+        message="Если этот email зарегистрирован в Brifia, мы отправили на него инструкцию.",
+    )
+
+    user_q = await db.execute(
+        select(User).where(User.email == body.email.lower().strip())
+    )
+    user = user_q.scalar_one_or_none()
+    if user is None or user.auth_provider != "email":
+        # OAuth-only users have no password to reset; still pretend.
+        return generic_response
+
+    # Invalidate any earlier unused tokens for this user — only the most
+    # recent should be usable
+    await db.execute(
+        delete(PasswordResetToken).where(
+            PasswordResetToken.user_id == user.id,
+            PasswordResetToken.used_at.is_(None),
+        )
+    )
+
+    raw_token = secrets.token_urlsafe(32)
+    record = PasswordResetToken(
+        user_id=user.id,
+        token_hash=hash_token(raw_token),
+        expires_at=datetime.now(timezone.utc)
+        + timedelta(minutes=PASSWORD_RESET_TTL_MINUTES),
+    )
+    db.add(record)
+    await db.commit()
+
+    profile_q = await db.execute(
+        select(Profile.full_name).where(Profile.user_id == user.id)
+    )
+    full_name: str | None = profile_q.scalar_one_or_none()
+
+    fire_and_forget(
+        send_password_reset(
+            user.email,
+            name=full_name,
+            reset_token=raw_token,
+            ttl_minutes=PASSWORD_RESET_TTL_MINUTES,
+        )
+    )
+    return generic_response
+
+
+@router.post("/password/reset", response_model=GenericMessageResponse)
+async def reset_password(
+    body: ResetPasswordRequest, db: AsyncSession = Depends(get_db)
+):
+    """Consume a reset token and set a new password.
+
+    Mints fresh refresh-token state implicitly: the user re-logs in via
+    /auth/login with the new password — we don't auto-issue tokens
+    here because the reset typically happens on a different device
+    (web) than the one they'll keep using.
+    """
+    if len(body.new_password) < MIN_PASSWORD_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Пароль должен быть не короче {MIN_PASSWORD_LENGTH} символов.",
+        )
+
+    token_h = hash_token(body.token)
+    rec_q = await db.execute(
+        select(PasswordResetToken).where(
+            PasswordResetToken.token_hash == token_h,
+            PasswordResetToken.used_at.is_(None),
+            PasswordResetToken.expires_at > datetime.now(timezone.utc),
+        )
+    )
+    record = rec_q.scalar_one_or_none()
+    if record is None:
+        raise HTTPException(
+            status_code=410,
+            detail="Ссылка для сброса пароля недействительна или уже использована.",
+        )
+
+    user_q = await db.execute(select(User).where(User.id == record.user_id))
+    user = user_q.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=410, detail="Аккаунт не найден.")
+
+    user.encrypted_password = hash_password(body.new_password)
+    record.used_at = datetime.now(timezone.utc)
+
+    # Invalidate all refresh tokens — anyone signed in with this account
+    # is forced to log in again with the new password
+    await db.execute(
+        delete(RefreshToken).where(RefreshToken.user_id == user.id)
+    )
+    await db.commit()
+
+    return GenericMessageResponse(message="Пароль обновлён. Войдите с новым паролем.")
 
 
 WEB_SESSION_TOKEN_TTL_SECONDS = 300

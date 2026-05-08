@@ -1,14 +1,13 @@
 """Send a rendered protocol to selected meeting participants by email.
 
-Uses aiosmtplib so we don't block the event loop. SMTP credentials come
-from the standard env-driven Settings; if they're missing, the function
-raises a 503 to keep failures explicit.
+Delegates the SMTP / Jinja work to `email_service.send_email`, so the
+email body is the brand-aligned `email/protocol_share.html` template
+rather than plain text.
 """
 from __future__ import annotations
 
 import logging
 import uuid
-from email.message import EmailMessage
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -17,7 +16,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.models.meeting import Meeting
 from app.models.participant import Participant
-from app.services.protocol_export import render_for_format
+from app.models.user import User
+from app.services.email_service import Attachment, send_email
+from app.services.protocol_export import (
+    _ru_duration,
+    _ru_meeting_date,
+    render_for_format,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,9 +37,13 @@ async def send_protocol_email(
     message: str | None,
     sender_name: str | None,
 ) -> tuple[list[str], list[str]]:
-    """Render the protocol once, then deliver to each participant who has
-    an email. Returns (sent_addresses, skipped_participant_ids_as_str).
-    """
+    """Render the protocol once, then deliver an HTML+attachment email
+    per recipient. Returns (sent_addresses, skipped_participant_ids).
+
+    Raises 503 when SMTP is not configured so the route surfaces this
+    explicitly (rather than silently dropping every recipient into
+    `skipped`)."""
+
     settings = get_settings()
     if not settings.smtp_host or not settings.smtp_from:
         raise HTTPException(
@@ -50,7 +59,11 @@ async def send_protocol_email(
     if meeting is None:
         raise HTTPException(status_code=404, detail="Meeting not found")
 
-    # Resolve participants — only those owned by caller AND with email
+    # Resolve sender's email so participants can reply directly to them
+    u_q = await db.execute(select(User.email).where(User.id == user_id))
+    sender_email: str | None = u_q.scalar_one_or_none()
+
+    # Resolve participants — only those owned by caller
     p_q = await db.execute(
         select(Participant).where(
             Participant.id.in_(participant_ids),
@@ -62,71 +75,56 @@ async def send_protocol_email(
     skipped: list[str] = []
 
     deliverable = [p for p in participants if (p.email or "").strip()]
-    not_deliverable = [str(p.id) for p in participants if not (p.email or "").strip()]
-    skipped.extend(not_deliverable)
-    # Plus IDs that didn't resolve (deleted, foreign user) — return them too
+    skipped.extend(str(p.id) for p in participants if not (p.email or "").strip())
     found_ids = {p.id for p in participants}
-    for pid in participant_ids:
-        if pid not in found_ids:
-            skipped.append(str(pid))
+    skipped.extend(str(pid) for pid in participant_ids if pid not in found_ids)
 
     if not deliverable:
         return sent, skipped
 
-    # Render once and reuse
-    data, filename, content_type = await render_for_format(db, meeting_id, user_id, fmt)
+    # Render the document once and reuse for every recipient
+    data, filename, content_type = await render_for_format(
+        db, meeting_id, user_id, fmt
+    )
 
-    subject = f"Протокол встречи: {(meeting.title or 'без названия').strip()}"
-    body_text = (message or _default_body(meeting, sender_name)).strip()
+    title = (meeting.title or "Встреча").strip()
+    meeting_date = _ru_meeting_date(meeting.created_at)
+    duration = _ru_duration(meeting.duration_seconds)
+    format_label = "PDF" if fmt == "pdf" else "Word"
+    subject = f"Протокол встречи · {title}"
 
-    import aiosmtplib  # imported lazily; falls back to ImportError if missing
-    use_tls = bool(settings.smtp_use_tls)
-    start_tls = bool(settings.smtp_use_starttls)
+    attachment = Attachment(
+        data=data,
+        filename=filename,
+        content_type=content_type,
+    )
 
     for p in deliverable:
-        msg = EmailMessage()
-        msg["From"] = (
-            f"{sender_name} <{settings.smtp_from}>"
-            if sender_name else settings.smtp_from
+        recipient_name = (
+            p.name.strip().split()[0] if p.name and p.name.strip() else None
         )
-        msg["To"] = p.email
-        msg["Subject"] = subject
-        msg.set_content(body_text)
-        msg.add_attachment(
-            data,
-            maintype=content_type.split("/", 1)[0],
-            subtype=content_type.split("/", 1)[1],
-            filename=filename,
+        ok = await send_email(
+            to=p.email,
+            subject=subject,
+            template_name="email/protocol_share.html",
+            context={
+                "meeting_title": title,
+                "meeting_date": meeting_date,
+                "duration": duration if duration != "—" else None,
+                "speakers_count": None,
+                "recipient_name": recipient_name,
+                "sender_name": sender_name,
+                "custom_message": (message or "").strip() or None,
+                "format_label": format_label,
+                "filename": filename,
+            },
+            attachments=[attachment],
+            sender_name=sender_name,
+            reply_to=sender_email,
         )
-        try:
-            await aiosmtplib.send(
-                msg,
-                hostname=settings.smtp_host,
-                port=settings.smtp_port,
-                username=settings.smtp_username or None,
-                password=settings.smtp_password or None,
-                use_tls=use_tls,
-                start_tls=start_tls,
-                timeout=30,
-            )
+        if ok:
             sent.append(p.email)
-        except Exception as e:  # noqa: BLE001 — surfaced to caller via metrics/log
-            logger.exception(
-                "smtp_send_failed meeting=%s participant=%s email=%s err=%s",
-                meeting_id, p.id, p.email, e,
-            )
+        else:
             skipped.append(str(p.id))
 
     return sent, skipped
-
-
-def _default_body(meeting: Meeting, sender_name: str | None) -> str:
-    title = (meeting.title or "встречи").strip()
-    who = sender_name or "Команда Brifia"
-    return (
-        f"Здравствуйте!\n\n"
-        f"Во вложении — протокол {title}. "
-        f"Документ сгенерирован автоматически на основе аудиозаписи и проверен ведущим.\n\n"
-        f"С уважением,\n{who}\n"
-        f"— отправлено через Brifia"
-    )

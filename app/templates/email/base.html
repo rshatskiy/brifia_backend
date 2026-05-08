@@ -1,0 +1,115 @@
+{#
+  Base layout for every transactional email.
+
+  Email-friendly principles:
+  - Tables for layout (Outlook still needs them).
+  - All structural styles inline (Gmail strips <style> in production).
+  - 600px max width, single column.
+  - Solid colours (gradients render unevenly across mail clients).
+  - No flexbox, no grid, no modern CSS.
+
+  Children override `subject_preview` (preheader, hidden hint shown in inbox
+  preview) and `content` (the white body card).
+#}
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <title>{{ subject }}</title>
+  <style>
+    /* Tiny progressive enhancement — most email clients keep <style>,
+       Gmail mobile and a few corporate filters strip it. Inline matters. */
+    body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
+    table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+    img { -ms-interpolation-mode: bicubic; border: 0; outline: none; text-decoration: none; }
+    a[x-apple-data-detectors] { color: inherit !important; text-decoration: none !important; }
+    @media (max-width: 600px) {
+      .container  { width: 100% !important; border-radius: 0 !important; }
+      .px-40      { padding-left: 22px !important; padding-right: 22px !important; }
+      .h-cover    { padding: 22px !important; }
+      .h1         { font-size: 22px !important; line-height: 1.25 !important; }
+      .stat-cell  { display: block !important; width: 100% !important; padding: 8px 0 !important; }
+    }
+  </style>
+</head>
+<body style="margin: 0; padding: 0; background-color: #F5F2FB; font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; color: #1A0B33;">
+  {# Preheader: short text shown in inbox list under the subject. Hidden visually. #}
+  <div style="display: none; max-height: 0; overflow: hidden; mso-hide: all; font-size: 1px; line-height: 1px; color: #F5F2FB;">
+    {% block preheader %}{{ subject }}{% endblock %}&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;
+  </div>
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#F5F2FB" style="background-color: #F5F2FB;">
+    <tr>
+      <td align="center" style="padding: 32px 12px;">
+
+        <table role="presentation" class="container" width="600" cellpadding="0" cellspacing="0" border="0" style="width: 600px; max-width: 600px; background-color: #FFFFFF; border-radius: 16px; box-shadow: 0 6px 24px rgba(124,58,237,0.10); overflow: hidden;">
+
+          {# ─────── Header bar (purple) ─────── #}
+          <tr>
+            <td bgcolor="#7C3AED" class="h-cover" style="background-color: #7C3AED; padding: 26px 36px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td align="left" valign="middle">
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td valign="middle" style="padding-right: 12px;">
+                          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="36" style="width: 36px; height: 36px; background-color: rgba(255,255,255,0.16); border-radius: 10px;">
+                            <tr>
+                              <td align="center" valign="middle" style="height: 36px; line-height: 36px;">
+                                <span style="color: #FFFFFF; font-weight: 800; font-size: 16px; letter-spacing: -0.02em; font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;">B</span>
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                        <td valign="middle">
+                          <div style="color: #FFFFFF; font-weight: 800; font-size: 18px; letter-spacing: -0.02em;">Brifia</div>
+                          <div style="color: rgba(255,255,255,0.7); font-weight: 500; font-size: 11px; letter-spacing: 0.04em; margin-top: 2px;">ИИ-СЕКРЕТАРЬ ВСТРЕЧ</div>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                  {% block header_right %}{% endblock %}
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          {# ─────── Hero (optional) ─────── #}
+          {% block hero %}{% endblock %}
+
+          {# ─────── Body ─────── #}
+          <tr>
+            <td class="px-40" style="padding: 36px 40px 32px;">
+              {% block content %}{% endblock %}
+            </td>
+          </tr>
+
+          {# ─────── Footer ─────── #}
+          <tr>
+            <td bgcolor="#FAF7FF" style="background-color: #FAF7FF; padding: 22px 40px; border-top: 1px solid #ECE7F5;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td align="left" style="font-size: 11.5px; color: #8C8499; line-height: 1.65;">
+                    <strong style="color: #1A0B33; font-weight: 700;">Brifia</strong> · ИИ-секретарь для встреч<br>
+                    Это автоматическое письмо — отвечать на него не нужно.<br>
+                    Если вы не запрашивали это действие, просто проигнорируйте письмо.
+                  </td>
+                </tr>
+                <tr>
+                  <td align="left" style="font-size: 11px; color: #B8B0C8; padding-top: 12px;">
+                    © Brifia · <a href="https://brifia.ru" style="color: #7C3AED; text-decoration: none;">brifia.ru</a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+        </table>
+
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
