@@ -31,6 +31,17 @@ class Settings(BaseSettings):
     bitrix_client_secret: str = ""
     bitrix_redirect_base: str = "https://api2.brifia.ru"
 
+    # SMTP for outbound mail (protocol email-share). All optional — if
+    # smtp_host/smtp_from is empty, /share/email returns 503 with an
+    # explicit "not configured" error rather than silently dropping.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""  # default From address — typically noreply@brifia.ru
+    smtp_use_tls: bool = False     # implicit TLS (port 465)
+    smtp_use_starttls: bool = True # STARTTLS upgrade (port 587)
+
     # Voice profile matching — when False, server does NOT compute speaker
     # similarity, does NOT store aggregated voice profiles, and does NOT
     # auto-bind based on voice. Embeddings still flow through to clients
