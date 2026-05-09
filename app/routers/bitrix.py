@@ -18,6 +18,7 @@ prevents the unauthenticated callback from being abused to write tokens for
 arbitrary user_ids.
 """
 import base64
+import logging
 import hashlib
 import hmac
 import json
@@ -45,6 +46,8 @@ from app.schemas.bitrix import (
     BitrixStatusResponse,
 )
 
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/bitrix", tags=["bitrix"])
 
@@ -149,6 +152,10 @@ async def oauth_init(
         f"&redirect_uri={urllib.parse.quote(redirect, safe='')}"
         f"&state={urllib.parse.quote(state, safe='')}"
     )
+    logger.info(
+        "bitrix_oauth_init user=%s portal=%s redirect_uri=%s client_id=%s",
+        user.id, portal, redirect, settings.bitrix_client_id,
+    )
     return BitrixOAuthInitResponse(authorization_url=auth_url)
 
 
@@ -173,17 +180,30 @@ async def oauth_callback(
     # install panel instead of a generic failure.
     if error:
         details = error_description or error
+        logger.warning(
+            "bitrix_oauth_callback bitrix_returned_error error=%r description=%r",
+            error, error_description,
+        )
         if error == "access_denied" or _looks_like_app_not_installed(details):
             return _redirect_error("APPLICATION_NOT_INSTALLED", details)
         return _redirect_error(error, details)
 
     if not code or not state:
+        logger.warning(
+            "bitrix_oauth_callback missing_code_or_state code_len=%d state_len=%d",
+            len(code or ""), len(state or ""),
+        )
         return _redirect_error("missing_code_or_state", "Bitrix redirect missing code/state")
 
     try:
         user_id, portal_url = _verify_state(state)
     except HTTPException as exc:
+        logger.warning("bitrix_oauth_callback invalid_state detail=%r", exc.detail)
         return _redirect_error("invalid_state", exc.detail)
+    logger.info(
+        "bitrix_oauth_callback received user=%s portal=%s code_prefix=%s",
+        user_id, portal_url, (code or "")[:8],
+    )
 
     if not settings.bitrix_client_id or not settings.bitrix_client_secret:
         return _redirect_error("server_misconfigured", "Bitrix client credentials missing on server")
@@ -197,14 +217,26 @@ async def oauth_callback(
         f"&redirect_uri={urllib.parse.quote(_redirect_uri(), safe='')}"
     )
 
+    redacted_token_url = (
+        token_url
+        .replace(settings.bitrix_client_secret, "<SECRET>")
+        if settings.bitrix_client_secret else token_url
+    )
+    logger.info("bitrix_oauth_token_exchange GET %s", redacted_token_url)
+
     async with httpx.AsyncClient(timeout=20.0) as client:
         try:
             resp = await client.get(token_url)
         except httpx.HTTPError as e:
+            logger.warning("bitrix_oauth_network_error portal=%s err=%s", portal_url, e)
             return _redirect_error("network_error", str(e))
 
     if resp.status_code != 200:
         body = resp.text
+        logger.warning(
+            "bitrix_oauth_token_exchange_failed portal=%s status=%d body=%r",
+            portal_url, resp.status_code, body[:600],
+        )
         # Bitrix sometimes wraps the message in JSON, sometimes in plain text.
         details = body
         try:
@@ -221,9 +253,17 @@ async def oauth_callback(
     tokens = resp.json()
     if tokens.get("error"):
         details = tokens.get("error_description") or tokens.get("error")
+        logger.warning(
+            "bitrix_oauth_token_payload_error portal=%s error=%r description=%r",
+            portal_url, tokens.get("error"), tokens.get("error_description"),
+        )
         if _looks_like_app_not_installed(details) or "invalid_grant" in str(tokens.get("error", "")).lower():
             return _redirect_error("APPLICATION_NOT_INSTALLED", details)
         return _redirect_error("b24_token_error", details)
+    logger.info(
+        "bitrix_oauth_token_ok portal=%s bx_user_id=%s expires_in=%s scope=%r",
+        portal_url, tokens.get("user_id"), tokens.get("expires_in"), tokens.get("scope"),
+    )
 
     access_token = tokens.get("access_token")
     refresh_token = tokens.get("refresh_token")
@@ -306,7 +346,24 @@ async def oauth_error(
 # the mobile UI — so this just shows a friendly redirect message.
 
 @router.api_route("/install", methods=["GET", "POST", "HEAD"], response_class=HTMLResponse)
-async def install_handler():
+async def install_handler(request: Request):
+    # Log the install ping so we can confirm the portal/admin who actually
+    # mounted the app — useful for debugging "приложение не установлено"
+    # mismatches between OAuth state and the marketplace registry.
+    try:
+        if request.method == "POST":
+            payload = dict(await request.form())
+        else:
+            payload = dict(request.query_params)
+    except Exception:
+        payload = {}
+    logger.info(
+        "bitrix_install_handler method=%s domain=%s member_id=%s payload_keys=%s",
+        request.method,
+        payload.get("DOMAIN") or payload.get("domain"),
+        payload.get("member_id") or payload.get("MEMBER_ID"),
+        list(payload.keys()),
+    )
     return HTMLResponse(
         "<!doctype html><html><head><meta charset='utf-8'>"
         "<title>Brifia установлен</title></head>"
