@@ -155,7 +155,7 @@ async def oauth_init(
         f"&response_type=code"
         f"&state={urllib.parse.quote(state, safe='')}"
     )
-    logger.info(
+    logger.warning(
         "bitrix_oauth_init user=%s portal=%s expected_redirect=%s client_id=%s",
         user.id, portal, redirect, settings.bitrix_client_id,
     )
@@ -203,7 +203,7 @@ async def oauth_callback(
     except HTTPException as exc:
         logger.warning("bitrix_oauth_callback invalid_state detail=%r", exc.detail)
         return _redirect_error("invalid_state", exc.detail)
-    logger.info(
+    logger.warning(
         "bitrix_oauth_callback received user=%s portal=%s code_prefix=%s",
         user_id, portal_url, (code or "")[:8],
     )
@@ -227,7 +227,7 @@ async def oauth_callback(
         .replace(settings.bitrix_client_secret, "<SECRET>")
         if settings.bitrix_client_secret else token_url
     )
-    logger.info("bitrix_oauth_token_exchange GET %s", redacted_token_url)
+    logger.warning("bitrix_oauth_token_exchange GET %s", redacted_token_url)
 
     async with httpx.AsyncClient(timeout=20.0) as client:
         try:
@@ -265,7 +265,7 @@ async def oauth_callback(
         if _looks_like_app_not_installed(details) or "invalid_grant" in str(tokens.get("error", "")).lower():
             return _redirect_error("APPLICATION_NOT_INSTALLED", details)
         return _redirect_error("b24_token_error", details)
-    logger.info(
+    logger.warning(
         "bitrix_oauth_token_ok portal=%s bx_user_id=%s expires_in=%s scope=%r",
         portal_url, tokens.get("user_id"), tokens.get("expires_in"), tokens.get("scope"),
     )
@@ -362,7 +362,7 @@ async def install_handler(request: Request):
             payload = dict(request.query_params)
     except Exception:
         payload = {}
-    logger.info(
+    logger.warning(
         "bitrix_install_handler method=%s domain=%s member_id=%s payload_keys=%s",
         request.method,
         payload.get("DOMAIN") or payload.get("domain"),
