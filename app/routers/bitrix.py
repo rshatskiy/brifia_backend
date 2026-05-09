@@ -145,15 +145,18 @@ async def oauth_init(
 
     state = _sign_state(str(user.id), portal)
     redirect = _redirect_uri()
+    # Bitrix marketplace OAuth uses the redirect_uri registered against the
+    # app in the partner console — passing one in the query causes
+    # "requested path is invalid". Keep the registered URL aligned with
+    # `_redirect_uri()` (logged below for verification).
     auth_url = (
         f"https://{portal}/oauth/authorize/"
         f"?client_id={urllib.parse.quote(settings.bitrix_client_id)}"
         f"&response_type=code"
-        f"&redirect_uri={urllib.parse.quote(redirect, safe='')}"
         f"&state={urllib.parse.quote(state, safe='')}"
     )
     logger.info(
-        "bitrix_oauth_init user=%s portal=%s redirect_uri=%s client_id=%s",
+        "bitrix_oauth_init user=%s portal=%s expected_redirect=%s client_id=%s",
         user.id, portal, redirect, settings.bitrix_client_id,
     )
     return BitrixOAuthInitResponse(authorization_url=auth_url)
@@ -208,13 +211,15 @@ async def oauth_callback(
     if not settings.bitrix_client_id or not settings.bitrix_client_secret:
         return _redirect_error("server_misconfigured", "Bitrix client credentials missing on server")
 
+    # Same logic as authorize: redirect_uri is implicit (registered in
+    # the marketplace app), passing it explicitly trips Bitrix's
+    # "requested path is invalid" guard.
     token_url = (
         f"https://{portal_url}/oauth/token/"
         f"?grant_type=authorization_code"
         f"&client_id={urllib.parse.quote(settings.bitrix_client_id)}"
         f"&client_secret={urllib.parse.quote(settings.bitrix_client_secret)}"
         f"&code={urllib.parse.quote(code)}"
-        f"&redirect_uri={urllib.parse.quote(_redirect_uri(), safe='')}"
     )
 
     redacted_token_url = (
