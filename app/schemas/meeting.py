@@ -51,12 +51,22 @@ class MeetingListItem(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    # Counts of rows in meeting_tasks for this meeting. Server-computed
+    # so the client can render badges and series statistics without having
+    # to fetch the task list. Defaults are 0 so newly-created meetings and
+    # meetings whose worker hasn't fanned out yet round-trip cleanly.
+    tasks_count: int = 0
+    open_tasks_count: int = 0
+
     model_config = {"from_attributes": True}
 
 
 class MeetingDetail(MeetingListItem):
     transcript: str | None
     protocol: str | None
+    # Legacy blob — kept on the wire while clients migrate to meeting_tasks
+    # rows + tasks_count/open_tasks_count above. Will be dropped after the
+    # mobile cut-over (see project_tasks_json_migration_blockers memory).
     tasks_json: str | None
 
     model_config = {"from_attributes": True}

@@ -2,10 +2,11 @@ import uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, delete, update as sa_update
+from sqlalchemy import select, func, delete, case, update as sa_update
 from app.database import get_db
 from app.models.user import User
 from app.models.meeting import Meeting
+from app.models.meeting_task import MeetingTask
 from app.models.participant import MeetingSpeaker, Participant, ParticipantSeriesLink
 from app.auth import get_current_user
 from app.routers.internal import _charge_usage_if_first_completion, COMPLETED_STATUS
@@ -20,6 +21,43 @@ from app.schemas.participant import (
 from app.websocket_manager import ws_manager
 
 router = APIRouter(prefix="/api/v1/meetings", tags=["meetings"])
+
+
+def _meeting_task_counts_sq():
+    """Subquery: per-meeting (total, open) task counts.
+
+    Joined LEFT in meeting list/detail handlers so the client can render
+    badges/series stats without N+1 trips. We aggregate via SUM(CASE)
+    rather than two separate COUNTs to keep it one scan over the index
+    on meeting_tasks.meeting_id.
+    """
+    return (
+        select(
+            MeetingTask.meeting_id.label("meeting_id"),
+            func.count(MeetingTask.id).label("total"),
+            func.coalesce(
+                func.sum(case((MeetingTask.status == "open", 1), else_=0)),
+                0,
+            ).label("open"),
+        )
+        .group_by(MeetingTask.meeting_id)
+        .subquery()
+    )
+
+
+def _meeting_with_counts(meeting: Meeting, tc: int | None, otc: int | None):
+    """Build a list/detail response from a Meeting ORM row + nullable counts.
+
+    Counts come from the LEFT JOIN against the task-counts subquery, so
+    they're None for meetings that have no rows in meeting_tasks at all.
+    Coerce to 0 in that case.
+    """
+    from app.schemas.meeting import MeetingDetail
+    base = MeetingDetail.model_validate(meeting)
+    return base.model_copy(update={
+        "tasks_count": tc or 0,
+        "open_tasks_count": otc or 0,
+    })
 
 
 async def _recalc_participant_series(
@@ -113,8 +151,10 @@ async def list_meetings(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    counts_sq = _meeting_task_counts_sq()
     q = (
-        select(Meeting)
+        select(Meeting, counts_sq.c.total, counts_sq.c.open)
+        .outerjoin(counts_sq, counts_sq.c.meeting_id == Meeting.id)
         .where(Meeting.user_id == user.id)
         .order_by(Meeting.created_at.desc())
         .offset(offset)
@@ -125,7 +165,10 @@ async def list_meetings(
     elif no_series:
         q = q.where(Meeting.series_id.is_(None))
     result = await db.execute(q)
-    return result.scalars().all()
+    return [
+        _meeting_with_counts(meeting, total, open_count)
+        for meeting, total, open_count in result.all()
+    ]
 
 
 @router.post("", response_model=MeetingDetail, status_code=201)
@@ -153,7 +196,8 @@ async def create_meeting(
     await db.refresh(meeting)
 
     await ws_manager.notify_user(str(user.id), "meeting.created", {"id": str(meeting.id)})
-    return meeting
+    # Fresh meeting → no tasks yet by definition.
+    return _meeting_with_counts(meeting, 0, 0)
 
 
 @router.get("/{meeting_id}", response_model=MeetingDetail)
@@ -162,13 +206,17 @@ async def get_meeting(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    counts_sq = _meeting_task_counts_sq()
     result = await db.execute(
-        select(Meeting).where(Meeting.id == meeting_id, Meeting.user_id == user.id)
+        select(Meeting, counts_sq.c.total, counts_sq.c.open)
+        .outerjoin(counts_sq, counts_sq.c.meeting_id == Meeting.id)
+        .where(Meeting.id == meeting_id, Meeting.user_id == user.id)
     )
-    meeting = result.scalar_one_or_none()
-    if not meeting:
+    row = result.one_or_none()
+    if row is None:
         raise HTTPException(status_code=404, detail="Meeting not found")
-    return meeting
+    meeting, total, open_count = row
+    return _meeting_with_counts(meeting, total, open_count)
 
 
 @router.get("/{meeting_id}/transcript", response_model=MeetingTranscriptResponse)
@@ -239,7 +287,20 @@ async def update_meeting(
         "id": str(meeting.id),
         "status": meeting.status,
     })
-    return meeting
+    # Re-fetch counts so the response is consistent with what list/get
+    # would return — meeting.update doesn't normally touch tasks, but
+    # tasks_json mirroring inside the same handler can.
+    counts_q = await db.execute(
+        select(
+            func.count(MeetingTask.id),
+            func.coalesce(
+                func.sum(case((MeetingTask.status == "open", 1), else_=0)),
+                0,
+            ),
+        ).where(MeetingTask.meeting_id == meeting.id)
+    )
+    total, open_count = counts_q.one()
+    return _meeting_with_counts(meeting, total, open_count)
 
 
 @router.delete("/{meeting_id}", status_code=204)
