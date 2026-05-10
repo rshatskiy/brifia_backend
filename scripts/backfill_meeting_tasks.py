@@ -26,8 +26,12 @@ stopped.
 import argparse
 import asyncio
 import sys
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy import select, exists, func
+from sqlalchemy.ext.asyncio import (
+    create_async_engine,
+    AsyncSession,
+    async_sessionmaker,
+)
+from sqlalchemy import select, func
 
 from app.config import get_settings
 from app.models.meeting import Meeting
@@ -62,13 +66,18 @@ async def _candidates(db: AsyncSession, limit: int | None):
 async def run(dry_run: bool, limit: int | None) -> int:
     settings = get_settings()
     engine = create_async_engine(settings.database_url)
+    # Mirror app.database settings: expire_on_commit=False is required so
+    # ORM objects loaded once stay usable across the per-meeting commits
+    # below (otherwise the next iteration's `meeting.id` access triggers
+    # a lazy-load from outside the greenlet — MissingGreenlet).
+    Session = async_sessionmaker(engine, expire_on_commit=False)
 
     processed = 0
     skipped = 0
     failed = 0
 
     try:
-        async with AsyncSession(engine) as db:
+        async with Session() as db:
             meetings = await _candidates(db, limit)
             total = len(meetings)
             print(f"[backfill] candidates: {total}"
