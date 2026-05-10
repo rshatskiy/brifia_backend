@@ -23,6 +23,12 @@ logger = logging.getLogger(__name__)
 
 HEARTBEAT_TIMEOUT_MINUTES = 5
 ORPHAN_TIMEOUT_HOURS = 2
+# Faster reaper for "analyzing without a job" — the client used to PUT
+# status='analyzing' after a re-upload that didn't actually create a fresh
+# processing_job, leaving the meeting indefinitely in 'analyzing' until
+# expire_orphan_meetings caught it after 2h. Now we catch this within a
+# few minutes and recover from the meeting's already-populated fields.
+ORPHAN_NO_JOB_TIMEOUT_MINUTES = 5
 EMBEDDING_RETENTION_HOURS = 24
 
 
@@ -100,6 +106,74 @@ async def expire_orphan_meetings() -> int:
         logger.exception("stalekeeper: expire_orphan_meetings failed")
         raise
     return expired
+
+
+async def reap_orphan_in_flight() -> int:
+    """Faster, smarter sibling of expire_orphan_meetings.
+
+    Targets meetings that flipped into queued/transcribing/analyzing but
+    have NO active processing_job (status pending/claimed) and have been
+    idle longer than ORPHAN_NO_JOB_TIMEOUT_MINUTES. Two recovery paths:
+
+    - If the meeting already has a populated protocol/transcript (typical
+      post-success re-upload race that left status mid-flight), flip to
+      `completed` so the user sees their data instead of a stuck spinner.
+    - Otherwise, flip to `error` with `error_message="orphaned"` so the
+      meeting is at least an actionable terminal state.
+
+    Pushes WebSocket meeting.updated. Designed to handle the case where a
+    re-upload triggered `status='analyzing'` on the meeting but did not
+    enqueue a fresh processing_job — the original 2-hour reaper let those
+    sit visibly broken for far too long.
+    """
+    threshold = datetime.now(timezone.utc) - timedelta(minutes=ORPHAN_NO_JOB_TIMEOUT_MINUTES)
+    reaped = 0
+    try:
+        async with async_session() as db:
+            # Subquery: meeting_ids that currently have an in-flight job.
+            active_job_ids_q = await db.execute(
+                select(ProcessingJob.meeting_id).where(
+                    ProcessingJob.status.in_(("pending", "claimed"))
+                )
+            )
+            active_meeting_ids = {row[0] for row in active_job_ids_q.all()}
+
+            stuck_q = await db.execute(
+                select(Meeting).where(
+                    Meeting.status.in_(list(IN_FLIGHT_STATUSES)),
+                    Meeting.updated_at < threshold,
+                )
+            )
+            for m in stuck_q.scalars().all():
+                if m.id in active_meeting_ids:
+                    # A job is actually running — leave it alone, the
+                    # 2h reaper or the heartbeat-revival path will deal
+                    # with truly broken workers.
+                    continue
+                if (m.protocol or "").strip() and (m.transcript or "").strip():
+                    # Pipeline produced output before the orphan was made.
+                    # Promote the meeting to completed so the user sees it.
+                    await _set_meeting_status(db, m, MeetingStatus.COMPLETED.value)
+                    logger.warning(
+                        "stalekeeper: reaped orphan meeting=%s status=%s -> completed (data present)",
+                        m.id, m.status,
+                    )
+                else:
+                    await _set_meeting_status(
+                        db, m, MeetingStatus.ERROR.value,
+                        error_message="orphaned: no active job",
+                    )
+                    logger.warning(
+                        "stalekeeper: reaped orphan meeting=%s status=%s -> error (no data)",
+                        m.id, m.status,
+                    )
+                reaped += 1
+            if reaped:
+                await db.commit()
+    except Exception:
+        logger.exception("stalekeeper: reap_orphan_in_flight failed")
+        raise
+    return reaped
 
 
 async def update_queue_gauges() -> None:
@@ -213,6 +287,7 @@ def attach_to_app(app):
     from apscheduler.triggers.cron import CronTrigger
     scheduler = AsyncIOScheduler()
     scheduler.add_job(revive_stalled_jobs, "interval", minutes=1, id="revive_stalled_jobs")
+    scheduler.add_job(reap_orphan_in_flight, "interval", minutes=2, id="reap_orphan_in_flight")
     scheduler.add_job(expire_orphan_meetings, "interval", hours=1, id="expire_orphan_meetings")
     scheduler.add_job(update_queue_gauges, "interval", seconds=15, id="update_queue_gauges")
     scheduler.add_job(expire_speaker_embeddings, "interval", hours=1, id="expire_speaker_embeddings")
