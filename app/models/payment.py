@@ -26,3 +26,8 @@ class PaymentLog(Base):
     amount: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
     plan_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("plans.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    # Marked once the webhook fully applies a status transition. NULL while
+    # pending; set to now() on successful application of the matching
+    # YooKassa event. Webhook handler short-circuits on a non-NULL value
+    # to make their delivery retries idempotent.
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
