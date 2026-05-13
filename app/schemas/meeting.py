@@ -1,6 +1,27 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from datetime import datetime
 from uuid import UUID
+
+from app.constants.meeting_status import MeetingStatus
+
+_VALID_STATUS_VALUES = frozenset(s.value for s in MeetingStatus)
+
+
+def _validate_status_value(v: str | None) -> str | None:
+    """Guards the public PUT /meetings/{id} endpoint from being fed
+    arbitrary status strings by buggy or outdated clients. The client used
+    to push 'upload_cancelled_by_user' from a stray cancelUpload() path,
+    which was not in MeetingStatus on either side and surfaced literally
+    in the meeting card label. Internal endpoints stay validated by
+    _set_meeting_status; this is the matching guard for the public side.
+    """
+    if v is None:
+        return v
+    if v not in _VALID_STATUS_VALUES:
+        raise ValueError(
+            f"Invalid meeting status '{v}'. Allowed: {sorted(_VALID_STATUS_VALUES)}"
+        )
+    return v
 
 
 class MeetingCreate(BaseModel):
@@ -17,6 +38,11 @@ class MeetingCreate(BaseModel):
     series_id: UUID | None = None
     prompt_id: UUID | None = None
 
+    @field_validator("status")
+    @classmethod
+    def _check_status(cls, v: str | None) -> str | None:
+        return _validate_status_value(v)
+
 
 class MeetingCreateInternal(BaseModel):
     # Used by faster-whisper to register a meeting if the client failed to.
@@ -26,6 +52,11 @@ class MeetingCreateInternal(BaseModel):
     status: str = "pending_upload"
     duration_seconds: int | None = None
     local_filename: str | None = None
+
+    @field_validator("status")
+    @classmethod
+    def _check_status(cls, v: str | None) -> str | None:
+        return _validate_status_value(v)
 
 
 class MeetingUpdate(BaseModel):
@@ -38,6 +69,11 @@ class MeetingUpdate(BaseModel):
     tasks_json: str | None = None
     series_id: UUID | None = None
     prompt_id: UUID | None = None
+
+    @field_validator("status")
+    @classmethod
+    def _check_status(cls, v: str | None) -> str | None:
+        return _validate_status_value(v)
 
 
 class MeetingListItem(BaseModel):
