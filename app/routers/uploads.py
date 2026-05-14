@@ -35,6 +35,12 @@ class UploadCreateResponse(BaseModel):
     upload_id: str
     is_existing: bool = False
     uploaded_chunks: dict = {}
+    # Path to the chunk storage dir picked at first initiate. Returned on
+    # resume so faster-whisper rebinds existing chunks to the SAME directory
+    # — previously it minted a fresh uuid dir on every initiate and built
+    # chunk paths under that empty dir, making assembly fail with
+    # "Chunk 0 missing" when /complete fired. Stays None on fresh uploads.
+    upload_dir: str | None = None
 
 
 class ChunkRecordRequest(BaseModel):
@@ -86,6 +92,7 @@ async def create_or_resume_upload(
             upload_id=str(existing.id),
             is_existing=True,
             uploaded_chunks=existing.uploaded_chunks or {},
+            upload_dir=existing.upload_dir,
         )
 
     upload = Upload(
