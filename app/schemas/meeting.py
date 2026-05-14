@@ -4,22 +4,46 @@ from uuid import UUID
 
 from app.constants.meeting_status import MeetingStatus
 
-_VALID_STATUS_VALUES = frozenset(s.value for s in MeetingStatus)
+# Canonical state machine — the only values internal endpoints can move
+# the meeting through (worker progress, complete, etc.).
+_CANONICAL_STATUSES = frozenset(s.value for s in MeetingStatus)
+
+# Statuses that the current production mobile client pushes from
+# BackgroundUploadService.toMeetingStatus() and related paths, but which
+# are NOT part of the canonical state machine. Accepted here so the
+# validator doesn't 422 existing TestFlight/App Store builds. They mostly
+# fold into pending_upload / error for routing purposes — the
+# PendingUploadWatcher on the client keys off 'upload_failed' specifically
+# to auto-retry stuck uploads, which is why we can't just drop them.
+#
+# These should be removed once the cleaned-up client (cancelUpload no
+# longer pushes status, toMeetingStatus mapped to canonical values) has
+# rolled out widely. Until then this list is the contract.
+_LEGACY_CLIENT_STATUSES = frozenset({
+    "upload_failed",      # client: chunked upload returned failure
+    "upload_cancelled",   # client: explicit user cancel (legacy)
+    "upload_initiating",  # client: pre-/initiate transient
+    "upload_completing",  # client: post-chunks pre-/complete transient
+})
+
+_ALLOWED_STATUSES = _CANONICAL_STATUSES | _LEGACY_CLIENT_STATUSES
 
 
 def _validate_status_value(v: str | None) -> str | None:
     """Guards the public PUT /meetings/{id} endpoint from being fed
-    arbitrary status strings by buggy or outdated clients. The client used
-    to push 'upload_cancelled_by_user' from a stray cancelUpload() path,
-    which was not in MeetingStatus on either side and surfaced literally
-    in the meeting card label. Internal endpoints stay validated by
-    _set_meeting_status; this is the matching guard for the public side.
+    arbitrary status strings by buggy or outdated clients. The trigger
+    was 'upload_cancelled_by_user' surfacing literally in the meeting
+    card — pushed by a stray cancelUpload() path on a stop-button race.
+
+    Accepts canonical MeetingStatus values plus a transitional allowlist
+    for statuses that current production clients actively send. Anything
+    else returns 422.
     """
     if v is None:
         return v
-    if v not in _VALID_STATUS_VALUES:
+    if v not in _ALLOWED_STATUSES:
         raise ValueError(
-            f"Invalid meeting status '{v}'. Allowed: {sorted(_VALID_STATUS_VALUES)}"
+            f"Invalid meeting status '{v}'. Allowed: {sorted(_ALLOWED_STATUSES)}"
         )
     return v
 
